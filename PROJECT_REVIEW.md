@@ -9,7 +9,7 @@
 | 代码质量 | 🟢 良好 | 模块化，函数职责清晰 |
 | 评分引擎 | 🟢 v2 | YAML权重+多样性惩罚+冷补偿 |
 | 回测 | 🟢 v2 | Walk-forward + 三策略 + 奖金区分组三/组六 |
-| 数据源 | 🟡 待完善 | 排列三API(体彩官方,有限频567) ✅ 福彩3D(zhcw.com,单源) 🟡 seed数据归档 ✅ |
+| 数据源 | 🟢 良好 | 排列三API(体彩官方,567限频自动重试) ✅ 福彩3D(zhcw.com) 🟡 seed数据归档 ✅ |
 | 依赖管理 | 🟢 有 | requirements.txt（不锁版本号，不装无用库） |
 | 文档 | 🟢 完善 | README + PROJECT_REVIEW.md + CODE_REVIEW_REPORT.md |
 | 可视化 | 🟢 完善 | matplotlib + plotly 交互图（走势/遗漏/热力图/Top50分布） |
@@ -38,10 +38,8 @@
 | 问题 | 严重程度 | 影响 |
 |:-----|:--------:|:-----|
 | 福彩3D备用数据源未建立 | 🟡 中 | zhcw.com 单一来源，长期可靠性不确定 |
-| 组三偏好回归惩罚未实现 | 🟡 中 | 形态评分可能被短期趋势带偏 |
-| 回测多注命中不累加 | 🟡 中 | ROI 比实际偏低 |
 | 评分权重未系统调优 | 🟡 中 | 核心瓶颈，需网格搜索/贝叶斯优化 |
-| PNG中文乱码 | 🟢 低 | 系统缺中文字体，HTML交互图正常 |
+| 遗漏计算伪向量化 | 🟢 低 | 当前数据量性能足够，大数据量时可能变慢 |
 
 ### 不采纳的建议（附理由）
 
@@ -58,7 +56,15 @@
 
 ## 架构变更记录
 
-### v2.6（当前）
+### v2.6.1（当前）
+- `scoring_engine.py`: 形态评分改为双向回归惩罚（组三过热降分、过冷加分）
+- `data_fetcher.py`: `fetch_pls()` 新增 567 限频退避重试（5s/10s/15s）
+- `backtest.py`: 回测命中从 `any()`/`elif` 改为 `sum()` 累加；参数验证；`json.load` 补充编码
+- `visualize.py`: matplotlib 自动探测系统中文字体，修复 PNG 中文方框
+- `feature_engine.py`/`data_fetcher.py`: 新增 `normalize_number()` 号码清洗（去空格/补零/剔非数字）
+- `compare_result.py`: 输出优化——开奖号码大字展示 + JSON 一句话摘要
+
+### v2.6
 - 第二轮代码审查修复：`shell=True`→列表参数、`skiprows=0`、删除死代码
 - `scoring_engine.py`: `generate_all()` 复用 `feature_engine.add_features()`，消除~60行重复
 - 新增 `scripts/compare_result.py`：预测 vs 开奖对比
