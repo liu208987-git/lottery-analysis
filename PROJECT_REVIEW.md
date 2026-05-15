@@ -9,8 +9,8 @@
 | 代码质量 | 🟢 良好 | 模块化，函数职责清晰 |
 | 评分引擎 | 🟢 v2 | YAML权重+多样性惩罚+冷补偿 |
 | 回测 | 🟢 v2 | Walk-forward + 三策略 + 奖金区分组三/组六 |
-| 数据源 | 🟡 待完善 | 排列三API可用，福彩3D需补全 |
-| 依赖管理 | 🟢 有 | requirements.txt |
+| 数据源 | 🟡 待完善 | 排列三API(体彩官方,有限频567) ✅ 福彩3D API(福彩官网,有WAF 403) ❌ |
+| 依赖管理 | 🟢 有 | requirements.txt（不锁版本号，不装无用库） |
 | 文档 | 🟢 完善 | README + SKILL.md + PROJECT_REVIEW.md |
 | 可视化 | 🟢 有 | 三张基础图（走势/遗漏/热力图） |
 | 工程化 | 🟢 有 | .gitattributes, .gitignore, .gitkeep |
@@ -49,6 +49,7 @@
 |:-----|:----:|:----------|
 | requirements.txt 锁版本号 | Grok | 项目跑在 Hermes venv 下（pandas 3.0.3, numpy 2.4.4），不锁版本号 = 装最新兼容版。锁死了反而哪天依赖冲突装不上。 |
 | 添加 plotly / seaborn / tqdm 依赖 | Grok | 当前代码未使用这三个库。`matplotlib` 已满足基础可视化需求。等真正需要交互图表或进度条时再加，避免装无用依赖。 |
+| data_fetcher 统一用 cwl.gov.cn API | Grok | Grok提供的代码全用福彩官网API。实测该API在服务器上返回 **403（WAF防护）**，不可用。排列三体彩API(webapi.sporttery.cn)保持独立实现，已验证可用。 |
 | 添加 LSTM 预测模块 | GPT / Grok | **不采用**，理由：① 彩票开奖是独立同分布随机事件，无时间依赖，LSTM 对此类序列的预测能力等同于随机策略；② 服务器 2核CPU/3.5GB内存/无GPU，跑不了深度学习训练；③ 即便训出来 ROI 也趋近随机，不如把精力用在评分引擎和特征工程。ML 正确用途是特征工程辅助（聚类分析），而非直接预测号码。 |
 
 ## 架构变更记录
@@ -57,6 +58,7 @@
 - `scoring_engine.py`: 新增 `generate_predictions()` 共用函数
 - `backtest.py`: `strategy_dynamic_scoring` 复用 generate_predictions，删除35行重复代码
 - `backtest.py`: 回测ROI奖金区分组三(346元)和组六(173元)
+- `data_fetcher.py`: 重写v2 —— 增量保存、日志系统、`--days`参数、API状态标注
 - 新增 `PROJECT_REVIEW.md`
 
 ### v2.2
