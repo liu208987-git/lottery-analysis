@@ -5,15 +5,20 @@
 ## 快速使用
 
 ```bash
-# 完整预测流程
-python scripts/feature_engine.py --lottery pls
+# 完整预测流程（排列三）
+python scripts/feature_engine.py --input data/raw/pls_raw.csv --output data/processed/pls_feat.csv --lottery pls --skiprows 2
 python scripts/stats_engine.py --lottery pls
 python scripts/scoring_engine.py --lottery pls --top-k 30
+
+# 完整预测流程（福彩3D）
+python scripts/feature_engine.py --input data/raw/d3_raw.csv --output data/processed/d3_feat.csv --lottery d3
+python scripts/stats_engine.py --lottery d3
+python scripts/scoring_engine.py --lottery d3 --top-k 30
 
 # 回测
 python scripts/backtest.py --lottery pls --periods 100 --top-k 30
 
-# 可视化
+# 可视化（待实现）
 python scripts/visualize.py --lottery pls
 ```
 

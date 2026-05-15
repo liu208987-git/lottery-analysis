@@ -23,7 +23,7 @@ import pandas as pd
 import numpy as np
 
 # 复用评分引擎
-from scoring_engine import generate_all, score_number, WEIGHTS
+from scoring_engine import generate_all, score_number, load_weights
 
 
 # ==========================================
@@ -65,7 +65,7 @@ def strategy_fixed_rule(all_nums: list, top_k: int, rng=None) -> list:
 
 
 def strategy_dynamic_scoring(all_nums_list: list, top_k: int, stats: dict, theory: dict,
-                              exclude_nums: set, rng=None) -> list:
+                              exclude_nums: set, weights: dict, params: dict, rng=None) -> list:
     """动态评分策略（复用 scoring_engine 逻辑）"""
     scored = []
     for a, b, c in all_nums_list:
@@ -92,7 +92,7 @@ def strategy_dynamic_scoring(all_nums_list: list, top_k: int, stats: dict, theor
         else:
             row['形态'] = '组六'
         
-        result = score_number(row, stats, theory)
+        result = score_number(row, stats, theory, weights, params)
         scored.append(((a, b, c), result['总分']))
     
     scored.sort(key=lambda x: x[1], reverse=True)
@@ -138,7 +138,10 @@ def walk_forward(df: pd.DataFrame, theory: dict, top_k: int = 30,
     }
     
     rng = random.Random(42)  # 固定种子，保证可复现
-    
+
+    # 加载权重
+    weights, params = load_weights()
+
     all_nums = generate_all()
     all_nums_list = [(int(r['红球1']), int(r['红球2']), int(r['红球3'])) 
                      for _, r in all_nums.iterrows()]
@@ -232,14 +235,14 @@ def walk_forward(df: pd.DataFrame, theory: dict, top_k: int = 30,
             elif sname == '固定规则':
                 preds = strategy_fixed_rule(all_nums_list, top_k)
             else:
-                preds = strategy_dynamic_scoring(all_nums_list, top_k, stats_template, theory, exclude, rng)
+                preds = strategy_dynamic_scoring(all_nums_list, top_k, stats_template, theory, exclude, weights, params)
             
             s = strategies[sname]
             s['candidates'].append(len(preds))
             
-            direct_hit = check_direct(actual, actual) if actual in preds else False
-            group_hit = check_group(actual, actual) if actual in preds else False
-            
+            direct_hit = any(check_direct(pred, actual) for pred in preds)
+            group_hit = any(check_group(pred, actual) for pred in preds)
+
             if direct_hit:
                 s['hits_direct'] += 1
                 s['miss_streak'] = 0
@@ -322,7 +325,7 @@ def main():
     base_dir = Path(__file__).resolve().parent.parent
     lottery_name = '排列三' if args.lottery == 'pls' else '福彩3D'
     
-    # 加载数据（按期号升序，旧→新）
+    # 加载数据（按期号降序，新→旧）
     data_path = base_dir / 'data' / 'processed' / f'{args.lottery}_feat.csv'
     df = pd.read_csv(data_path)
     df = df.sort_values('期数', ascending=False).reset_index(drop=True)

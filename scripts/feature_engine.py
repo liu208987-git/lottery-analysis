@@ -306,7 +306,8 @@ def main():
     print_check_report(report)
     
     # 3. 保存检查报告
-    output_dir = Path(args.output).parent.parent / 'output' / 'reports'
+    base_dir = Path(__file__).resolve().parent.parent
+    output_dir = base_dir / 'output' / 'reports'
     output_dir.mkdir(parents=True, exist_ok=True)
     report_path = output_dir / f'{args.lottery}_data_check.json'
     with open(report_path, 'w', encoding='utf-8') as f:
@@ -314,7 +315,7 @@ def main():
     print(f"  检查报告已保存: {report_path}")
     
     # 4. 如果检查异常且不强制，退出
-    if not report['通过'] and not args.force and args.check_only:
+    if not report['通过'] and not args.force:
         print("  数据检查未通过，停止处理。使用 --force 强制继续。")
         sys.exit(1)
     if args.check_only:

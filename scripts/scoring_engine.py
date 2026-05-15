@@ -153,8 +153,10 @@ def score_number(row, stats, theory, weights, params):
 
     sum_freq_30 = {int(k): v for k, v in window_30.get('和值频率', {}).items() if v}
     if sum_freq_30 and sum(sum_freq_30.values()) > 0:
-        recent = sum_freq_30.get(s_val, 0) / sum(sum_freq_30.values())
-        recent_score = int(W['和值'] * 0.8 * recent * 30)
+        total_30 = sum(sum_freq_30.values())
+        recent_ratio = sum_freq_30.get(s_val, 0) / total_30
+        expected_ratio = theory_sum.get(s_val, 0) / 1000.0
+        recent_score = int(W['和值'] * min(recent_ratio / expected_ratio, 1.5) / 1.5) if expected_ratio > 0 else 0
     else:
         recent_score = 0
     recent_score = min(recent_score, int(W['和值'] * 0.8))
@@ -179,8 +181,10 @@ def score_number(row, stats, theory, weights, params):
 
     span_freq_30 = {int(k): v for k, v in window_30.get('跨度频率', {}).items() if v}
     if span_freq_30 and sum(span_freq_30.values()) > 0:
-        recent_s = span_freq_30.get(span_val, 0) / sum(span_freq_30.values())
-        recent_score_s = int(W['跨度'] * 0.8 * recent_s * 30)
+        total_s30 = sum(span_freq_30.values())
+        recent_s_ratio = span_freq_30.get(span_val, 0) / total_s30
+        expected_s_ratio = theory_span.get(span_val, 0) / 1000.0
+        recent_score_s = int(W['跨度'] * min(recent_s_ratio / expected_s_ratio, 1.5) / 1.5) if expected_s_ratio > 0 else 0
     else:
         recent_score_s = 0
     recent_score_s = min(recent_score_s, int(W['跨度'] * 0.8))
@@ -379,6 +383,7 @@ def main():
     stats_path = base_dir / 'data' / 'cache' / f'{args.lottery}_stats_latest.json'
     if not stats_path.exists():
         print(f"[错误] 统计数据不存在: {stats_path}")
+        print(f"  请先运行: python scripts/stats_engine.py --lottery {args.lottery}")
         sys.exit(1)
     with open(stats_path, 'r', encoding='utf-8') as f:
         stats = json.load(f)
