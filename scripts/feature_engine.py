@@ -24,6 +24,25 @@ import numpy as np
 
 
 # ==========================================
+#  0. 号码清洗工具
+# ==========================================
+
+def normalize_number(value) -> str:
+    """清洗号码为3位数字字符串：去空格/去非数字/补零/截断
+
+    "4 8 2" → "482"
+    "40"    → "040"
+    "020"   → "020"
+    "7,8,5" → "785"
+    """
+    s = str(value).strip()
+    digits = ''.join(ch for ch in s if ch.isdigit())
+    if len(digits) < 3:
+        digits = digits.zfill(3)
+    return digits[:3]
+
+
+# ==========================================
 #  1. 数据检查
 # ==========================================
 
@@ -267,10 +286,10 @@ def read_raw(input_path: str, skiprows: int, lottery: str) -> pd.DataFrame:
         if '号码' in df.columns:
             # 标准3列格式：从号码列拆出红球1,红球2,红球3
             df = pd.read_csv(input_path, encoding='utf-8-sig')
-            nums_str = df['号码'].astype(str).str.strip()
-            df['红球1'] = nums_str.str[0].fillna('0').astype(int)
-            df['红球2'] = nums_str.str[1].fillna('0').astype(int)
-            df['红球3'] = nums_str.str[2].fillna('0').astype(int)
+            nums = df['号码'].apply(normalize_number)
+            df['红球1'] = nums.str[0].astype(int)
+            df['红球2'] = nums.str[1].astype(int)
+            df['红球3'] = nums.str[2].astype(int)
             if '期号' in df.columns:
                 df = df.rename(columns={'期号': '期数'})
         else:
@@ -284,10 +303,10 @@ def read_raw(input_path: str, skiprows: int, lottery: str) -> pd.DataFrame:
         df = pd.read_csv(input_path, encoding='utf-8-sig')
         if '号码' in df.columns:
             # zhcw格式：从 号码 列拆出红球1,红球2,红球3
-            nums_str = df['号码'].astype(str).str.strip()
-            df['红球1'] = nums_str.str[0].fillna('0').astype(int)
-            df['红球2'] = nums_str.str[1].fillna('0').astype(int)
-            df['红球3'] = nums_str.str[2].fillna('0').astype(int)
+            nums = df['号码'].apply(normalize_number)
+            df['红球1'] = nums.str[0].astype(int)
+            df['红球2'] = nums.str[1].astype(int)
+            df['红球3'] = nums.str[2].astype(int)
             # 统一列名为 期数
             if '期号' in df.columns and '期数' not in df.columns:
                 df = df.rename(columns={'期号': '期数'})

@@ -200,7 +200,14 @@ def save_incremental(df, lottery_type):
     df_out = df.rename(columns=rename_map)
     df_out = df_out[['期号', '日期', '号码']].copy()
     df_out['期号'] = df_out['期号'].astype(str)
-    df_out['号码'] = df_out['号码'].astype(str).str.zfill(3)
+    # 清洗号码：去空格→去非数字→补零到3位
+    df_out['号码'] = (
+        df_out['号码'].astype(str)
+        .str.replace(r'\s+', '', regex=True)
+        .str.replace(r'\D', '', regex=True)
+        .str.zfill(3)
+        .str[:3]
+    )
 
     if file_path.exists():
         old_df = pd.read_csv(file_path, dtype=str, encoding='utf-8-sig')
