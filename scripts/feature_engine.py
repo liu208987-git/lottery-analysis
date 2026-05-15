@@ -86,7 +86,7 @@ def check_data(df: pd.DataFrame, lottery_name: str) -> dict:
             dates = pd.to_datetime(df['openTime'], errors='coerce')
             if dates.isnull().any():
                 report['异常'].append(f"有 {dates.isnull().sum()} 个无效日期")
-        except:
+        except Exception:
             pass
     
     # 汇总
