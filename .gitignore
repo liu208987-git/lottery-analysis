@@ -7,9 +7,8 @@ data/cache/*
 !data/cache/.gitkeep
 data/*.csv
 
-# 输出目录（保留目录结构）
+# 输出目录（保留目录结构，用 .gitkeep 占位）
 output/*
-!output/*/
 !output/**/.gitkeep
 
 logs/*
