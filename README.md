@@ -211,6 +211,9 @@ python scripts/visualize.py --lottery pls --chart all --output-format html
 
 ## 更新日志
 
+- **v2.5** (2026-05-15)：scoring_engine JSON结构升级——过滤说明改object、代码版本字段、展示理由字段；README模式A/B说明(--skiprows 3/2)；git兼容Python 3.6；.gitignore放行output/predictions/*.json
+- **v2.4.1** (2026-05-15)：feature_engine.py numpy 2.x兼容修复(np.char.add)、遗漏特征向量化(20x加速)；scoring_engine新参数exclude-mode/include-baozi/target-issue；backtest同步
+- **v2.4** (2026-05-15)：Plotly交互式可视化(HTML双格式)；README福彩3D入口优化；GPT/Grok建议评估
 - **v2.3** (2026-05-15)：`generate_predictions()` 抽取共用、回测奖金区分组三(346元)/组六(173元)、新增 PROJECT_REVIEW.md
 - **v2.2** (2026-05-15)：P0/P1/P2 代码审查修复（README参数补全、回测组选判断修复、数据检查退出保护等）
 - **v2.0** (2026-05-15)：评分引擎重大升级——YAML权重配置、多样性惩罚、冷号补偿、data_fetcher 数据自动获取

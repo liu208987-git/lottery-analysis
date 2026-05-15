@@ -2,7 +2,8 @@
   "彩种": "福彩3D",
   "数据截至期号": 2026124,
   "预测期号": 2026125,
-  "评分时间": "2026-05-15 15:14:49",
+  "评分时间": "2026-05-15 15:57:38",
+  "top_k": 30,
   "风险提示": "⚠️ 彩票开奖具有高度随机性，本评分仅基于历史统计和理论分布，不代表未来开奖结果。请理性看待，量力而行。",
   "摘要": {
     "总分最高": 81,
@@ -23,17 +24,18 @@
     "高分组(≥60)": 612,
     "候选总数": 985
   },
+  "过滤说明": {
+    "排除近N期": 5,
+    "是否排除豹子": true,
+    "排除模式": "direct"
+  },
   "生成信息": {
     "命令": "python scripts/scoring_engine.py --lottery d3 --top-k 30 --exclude-recent 5 --exclude-mode direct",
     "权重文件": "/home/admin/bendi/lottery-analysis/rules/scoring_weights.yaml",
     "统计缓存": "/home/admin/bendi/lottery-analysis/data/cache/d3_stats_latest.json",
-    "数据文件": "/home/admin/bendi/lottery-analysis/data/processed/d3_feat.csv"
+    "数据文件": "/home/admin/bendi/lottery-analysis/data/processed/d3_feat.csv",
+    "代码版本": "a1131aa"
   },
-  "过滤说明": "排除近5期（direct模式），排除豹子",
-  "排除模式": "direct",
-  "包含豹子": false,
-  "top_k": 30,
-  "排除近N期": 5,
   "权重": {
     "和值": 18,
     "跨度": 15,
