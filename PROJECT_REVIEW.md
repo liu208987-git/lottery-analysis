@@ -1,6 +1,6 @@
 # 项目审查总览
 
-> 最后更新：2026-05-15 | 版本：v2.6
+> 最后更新：2026-05-16 | 版本：v2.7
 
 ## 审查结论
 
@@ -9,7 +9,7 @@
 | 代码质量 | 🟢 良好 | 模块化，函数职责清晰 |
 | 评分引擎 | 🟢 v2 | YAML权重+多样性惩罚+冷补偿 |
 | 回测 | 🟢 v2 | Walk-forward + 三策略 + 奖金区分组三/组六 |
-| 数据源 | 🟢 良好 | 排列三API(体彩官方,567限频自动重试) ✅ 福彩3D(zhcw.com) 🟡 seed数据归档 ✅ |
+| 数据源 | 🟢 良好 | 排列三API(体彩官方,567重试) ✅ 福彩3D(zhcw主源+eastmoney备用+双源校验) ✅ seed归档 ✅ |
 | 依赖管理 | 🟢 有 | requirements.txt（不锁版本号，不装无用库） |
 | 文档 | 🟢 完善 | README + PROJECT_REVIEW.md + CODE_REVIEW_REPORT.md |
 | 可视化 | 🟢 完善 | matplotlib + plotly 交互图（走势/遗漏/热力图/Top50分布） |
@@ -37,9 +37,10 @@
 
 | 问题 | 严重程度 | 影响 |
 |:-----|:--------:|:-----|
-| 福彩3D备用数据源未建立 | 🟡 中 | zhcw.com 单一来源，长期可靠性不确定 |
-| 评分权重未系统调优 | 🟡 中 | 核心瓶颈，需网格搜索/贝叶斯优化 |
-| 遗漏计算伪向量化 | 🟢 低 | 当前数据量性能足够，大数据量时可能变慢 |
+| 评分权重系统调优 | 🟡 中 | tune_weights.py 已就绪，等待复盘数据积累 30 期后运行 |
+| 遗漏计算伪向量化 | 🟢 低 | 当前 7600 行性能足够，纯向量化改写可选 |
+
+> v2.7 已解决：福彩3D双源(zhcw+eastmoney+双源校验)、组三回归惩罚、API 567重试、回测命中累加、参数验证、PNG中文字体、shell=True、复盘闭环(review_history+review_summary)、多策略权重、Optuna贝叶斯优化、参数稳定性分析
 
 ### 不采纳的建议（附理由）
 
@@ -56,7 +57,14 @@
 
 ## 架构变更记录
 
-### v2.6.1（当前）
+### v2.7（当前）
+- 复盘闭环：`compare_result.py` → `review_history.csv` 累加 → `review_summary.py` 表现摘要
+- 多策略权重：`scoring_weights_conservative.yaml` / `diversity.yaml` + `run_daily.py --strategy all`
+- `tune_weights.py`: 随机搜索 + Optuna TPE 贝叶斯优化 + 参数稳定性分析
+- 数据源加固：`fetch_3d_from_eastmoney()` 东方财富接入(50条/页) + 双源校验 + fallback
+- 工具链：`CLAUDE.md` 项目指令 + `Makefile` 一键命令 + `rules/data_sources.yaml` 配置外部化
+
+### v2.6.1
 - `scoring_engine.py`: 形态评分改为双向回归惩罚（组三过热降分、过冷加分）
 - `data_fetcher.py`: `fetch_pls()` 新增 567 限频退避重试（5s/10s/15s）
 - `backtest.py`: 回测命中从 `any()`/`elif` 改为 `sum()` 累加；参数验证；`json.load` 补充编码

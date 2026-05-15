@@ -51,23 +51,32 @@ lottery-analysis/
 │   ├── stats_engine.py       # 多窗口统计 + 理论分布对比
 │   ├── scoring_engine.py     # 评分引擎v2（YAML权重+多样性惩罚+冷补偿）
 │   ├── backtest.py           # Walk-forward回测（三策略对比）
-│   ├── compare_result.py     # 预测 vs 开奖对比（直选/组选命中、和值差、跨度差）
+│   ├── compare_result.py     # 预测 vs 开奖对比 + review_history累加
+│   ├── review_summary.py     # 最近N期复盘表现摘要
+│   ├── tune_weights.py       # 权重自动调优（随机搜索 + Optuna贝叶斯优化）
 │   ├── filter_engine.py      # 轻量预过滤器
-│   └── visualize.py          # 趋势图/热力图（可选）
+│   └── visualize.py          # 走势图/热力图（可选）
 ├── rules/
-│   ├── pls_default.yaml      # 排列三过滤规则
-│   ├── d3_default.yaml       # 福彩3D过滤规则
-│   └── scoring_weights.yaml  # 评分权重（可调，无需改代码）
+│   ├── scoring_weights.yaml              # 默认权重
+│   ├── scoring_weights_conservative.yaml # 稳健策略
+│   ├── scoring_weights_diversity.yaml    # 多样性策略
+│   ├── data_sources.yaml                 # 数据源配置（URL外部化）
+│   ├── pls_default.yaml                  # 排列三过滤规则
+│   └── d3_default.yaml                   # 福彩3D过滤规则
 ├── data/
 │   ├── raw/                  # 原始CSV（data_fetcher.py存放位置）
 │   ├── processed/            # 特征工程输出（113维）
 │   ├── archived/             # 种子数据（首次clone自动复制到raw/）
 │   └── cache/                # 统计缓存
 ├── output/
-│   ├── predictions/          # 预测结果JSON
+│   ├── predictions/          # 预测结果JSON（支持多策略独立输出）
+│   ├── reviews/              # 复盘总表（review_history.csv）
 │   ├── backtests/            # 回测报告
 │   ├── charts/               # 可视化图表
-│   └── reports/              # 数据检查报告
+│   ├── reports/              # 数据检查+对比报告
+│   └── tuning/               # 调参记录
+├── CLAUDE.md                 # Claude Code 项目指令
+├── Makefile                  # 一键命令入口
 └── requirements.txt          # 依赖清单
 ```
 
@@ -104,11 +113,8 @@ lottery-analysis/
 
 ## 后续计划
 
-- [ ] 福彩3D备用数据源（当前仅 zhcw.com 单一来源）
-- [x] ~~组三偏好回归惩罚~~ → v2.6.1 已实现双向回归惩罚
-- [x] ~~回测多注命中累加~~ → v2.6.1 已改为 sum() 累加
-- [ ] 评分权重系统调优（网格搜索/贝叶斯优化）
-- [ ] 遗漏计算真正向量化（去除 Python for 循环）
+- [ ] 评分权重系统调优（等待 review_history.csv 积累 30 期数据后运行 tune_weights.py）
+- [ ] 遗漏计算真正向量化（去除 Python for 循环，当前 7600 行性能足够）
 - [ ] GitHub Actions 每日自动运行（可选）
 
 > ❌ **不考虑 LSTM/ML 预测模块**，原因：
@@ -243,9 +249,8 @@ python run_daily.py pls --top-k 20 --exclude-recent 3
 
 ## 已知问题与限制
 
-- 🟡 **福彩3D自动爬取**：zhcw.com 可用但依赖单一源，长期稳定性不确定
-- 🟡 **回测ROI偏低**：评分权重未经过系统调优（网格搜索/贝叶斯优化）
-- 🟡 **遗漏计算伪向量化**：性能足够但非纯向量化实现，大数据量时可能变慢
+- 🟢 **福彩3D双源覆盖**：zhcw.com 主源 + eastmoney.com 备用校验，自动 fallback
+- 🟡 **评分权重待调优**：tune_weights.py 已就绪（随机搜索 + Optuna 贝叶斯优化），等待复盘数据积累
 - ⚠️ **彩票结果高度随机**：所有分析仅基于历史统计，不代表未来结果
 
 ## 风险提示
@@ -254,6 +259,7 @@ python run_daily.py pls --top-k 20 --exclude-recent 3
 
 ## 更新日志
 
+- **v2.7** (2026-05-16)：复盘闭环 + 数据源加固 + 工具链完善——review_history.csv 长期复盘累加、review_summary.py 表现摘要、多策略权重(conservative/diversity)、tune_weights.py 随机搜索+Optuna贝叶斯优化+参数稳定性分析；东方财富福彩3D接入(50条/页)+双源校验+主源失败自动fallback；CLAUDE.md项目指令、Makefile一键命令、data_sources.yaml配置外部化
 - **v2.6.1** (2026-05-15)：P1/P2集中修复——组三回归惩罚(形态评分双向扣分)、API 567退避重试、回测多注命中累加(sum替代any/elif)、回测参数验证、PNG中文字体自动探测；号码清洗加固(normalize_number去空格/补零/剔除非数字)；compare_result输出优化(开奖号码大字展示+一句话摘要)
 - **v2.6** (2026-05-15)：第二轮代码审查修复——shell=True→列表参数、skiprows=0、删除openTime死代码、is_monotonic_increasing优化、generate_all()复用add_features()去重；新增 compare_result.py 预测vs开奖对比脚本；run_daily.py CLI参数化(--top-k/--exclude-recent)；seed数据归档(data/archived/)；Top30字段修复
 - **v2.5.1** (2026-05-15)：新增 `run_daily.py` 一键每日运行脚本；福彩3D数据源升级为zhcw.com；feature_engine兼容简洁3列CSV格式

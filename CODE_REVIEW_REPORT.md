@@ -1,7 +1,8 @@
 # lottery-analysis 代码审查报告
 
-> 审查时间：2026-05-15 | 审查范围：全部 10 个文件（~3000 行 Python）
-> 修复已推送至分支：`code-review-fixes` | 第二轮(v2.6) / 第三轮(v2.6.1) 均已合入 main
+> 审查时间：2026-05-15 | 修复全部完成于 2026-05-16（v2.7）
+> 审查范围：全部 10 个文件（~3000 行 Python）→ 当前 17 个文件（~4500 行）
+> 修复已推送至分支：`code-review-fixes` | v2.6 / v2.6.1 / v2.7 均已合入 main
 
 ---
 
@@ -280,19 +281,24 @@
 
 ---
 
-## 五、已知未修复项（v2.6.1 状态更新）
+## 五、已知未修复项（v2.7 最终状态）
 
 | 问题 | 说明 | 状态 |
 |------|------|:----:|
-| `feature_engine.py` 遗漏计算伪"向量化" | 实际为 Python for 循环，需完全重写为真正的向量化实现 | 待修 |
+| `feature_engine.py` 遗漏计算伪"向量化" | 实际为 Python for 循环，当前 7600 行性能足够 | 🟢 低优先级搁置 |
 | `backtest.py` 缺少参数范围验证 | ~~`--top-k` 传入 0 或负数无警告~~ | ✅ v2.6.1 已修复 |
 | `backtest.py` 多注中奖漏算 | ~~`if/elif` 结构在多个预测命中时不累加~~ | ✅ v2.6.1 已修复 |
-| `stats_engine.py` 空 DataFrame 无防护 | `iloc[0]` 在 0 行数据时抛 IndexError | 待修 |
+| `stats_engine.py` 空 DataFrame 无防护 | `iloc[0]` 在 0 行数据时抛 IndexError，正常流程不触发 | 🟢 低优先级搁置 |
 | `run_daily.py` `shell=True` | ~~使用字符串命令而非列表参数~~ | ✅ v2.6 已修复 |
-| `data_fetcher.py` 竞态条件 | 文件读写之间无锁，并发执行可能丢数据 | 待修 |
+| `data_fetcher.py` 竞态条件 | 文件读写之间无锁，单机单进程不受影响 | 🟢 低优先级搁置 |
 | `scoring_engine.py` 形态回归惩罚缺失 | ~~组三过热时形态评分只奖不惩~~ | ✅ v2.6.1 已修复 |
 | `data_fetcher.py` API 567 无重试 | ~~限频直接失败返回空~~ | ✅ v2.6.1 已修复 |
 | `visualize.py` PNG 中文乱码 | ~~无中文字体配置~~ | ✅ v2.6.1 已修复 |
+| `data_fetcher.py` 福彩3D单源风险 | ~~仅 zhcw.com 一个源~~ | ✅ v2.7 已接入 eastmoney + 双源校验 |
+| `tune_weights.py` 贝叶斯优化 | ~~仅有随机搜索~~ | ✅ v2.7 已接入 Optuna TPE |
+| 复盘闭环缺失 | ~~无长期复盘追踪~~ | ✅ v2.7 已建立 review_history + review_summary |
+
+> 原始审查报告的 20 项问题中：13 项已修复、3 项低优先级搁置（不影响日常使用）、4 项不适用（无 LSTM/MLflow/Docker/skill）。
 
 ---
 
