@@ -1,5 +1,9 @@
 # 数据文件（不提交到Git）
 data/raw/*
+
+# 存档数据（按期号命名，手动提交）
+!data/archived/
+!data/archived/*.csv
 !data/raw/.gitkeep
 data/processed/*
 !data/processed/.gitkeep
