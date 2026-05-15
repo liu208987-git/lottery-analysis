@@ -243,6 +243,57 @@ def main():
             json.dump(serializable, f, ensure_ascii=False, indent=2)
         print(f"  💾 搜索记录: {log_path}")
 
+    # ── 稳定性分析 ──
+    if best_sample and len(df) >= args.periods * 2:
+        print(f"\n  {'─'*60}")
+        print(f"  🔍 参数稳定性分析")
+        print(f"  {'─'*60}")
+
+        best_yaml_str = build_yaml(best_sample)
+        with tempfile.NamedTemporaryFile(
+            mode='w', suffix='.yaml', encoding='utf-8', delete=False
+        ) as f:
+            f.write(best_yaml_str)
+            tmp_path = f.name
+
+        windows = [
+            ('最近{}期'.format(args.periods), 0),
+            ('往前{}-{}期'.format(args.periods + 1, args.periods * 2), args.periods),
+        ]
+
+        scores = []
+        try:
+            from backtest import walk_forward
+            for wname, offset in windows:
+                sub_df = df.iloc[offset:offset + args.periods].copy()
+                if len(sub_df) < args.periods:
+                    continue
+                bt = walk_forward(sub_df, theory, top_k=args.top_k,
+                                  test_periods=min(args.periods, len(sub_df) - 30),
+                                  train_window=min(100, len(sub_df) // 2),
+                                  lottery_code=args.lottery, weight_path=tmp_path)
+                sc = composite_score(bt, min(args.periods, len(sub_df) - 30))
+                scores.append((wname, sc, bt))
+        finally:
+            Path(tmp_path).unlink(missing_ok=True)
+
+        if len(scores) == 2:
+            diff = abs(scores[0][1] - scores[1][1])
+            avg = (scores[0][1] + scores[1][1]) / 2
+            rel_change = diff / abs(avg) * 100 if abs(avg) > 0.01 else 0
+
+            for wname, sc, _ in scores:
+                print(f"  {wname}: 综合分 {sc:.1f}")
+
+            if rel_change > 50:
+                stability = '⚠️ 不稳定（差异 {:.0f}%）— 最佳权重可能过拟合'.format(rel_change)
+            elif rel_change > 25:
+                stability = '🟡 一般（差异 {:.0f}%）— 权重尚可但不够稳健'.format(rel_change)
+            else:
+                stability = '✅ 稳定（差异 {:.0f}%）— 权重跨时间段表现一致'.format(rel_change)
+
+            print(f"  → {stability}")
+
     print(f"\n{'='*60}\n")
 
 

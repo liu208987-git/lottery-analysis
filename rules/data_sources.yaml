@@ -1,0 +1,32 @@
+# 数据源配置
+# 每类彩种一个 primary + 可选 verify 源
+# 修改 URL 无需改代码
+
+pls:
+  primary:
+    - name: sporttery_api
+      url: "https://webapi.sporttery.cn/gateway/lottery/getHistoryPageListV1.qry?gameNo=350133&provinceId=0&pageSize={page_size}&is498=1"
+      type: json_api
+      enabled: true
+      page_size: 50
+
+  verify:
+    - name: js_lottery
+      url: "https://www.js-lottery.com/wfzq/p3p5/p3data"
+      type: html_table
+      enabled: false   # 备用，暂未接入
+
+d3:
+  primary:
+    - name: zhcw
+      url: "http://kaijiang.zhcw.com/zhcw/html/3d/list_{page}.html"
+      type: html_table
+      enabled: true
+      max_pages: 10
+
+  verify:
+    - name: eastmoney
+      url: "https://datacenter.eastmoney.com/securities/api/data/v1/get?reportName=RPT_LOTTERY_WINNING&columns=SECURITY_CODE,SECURITY_SHORT_NAME,TRADE_DATE,OPEN_NUM,TRIAL_NUM,SALE_AMOUNT&pageNumber={page}&pageSize=50&sortColumns=TRADE_DATE&sortTypes=-1&source=WEB&client=WEB"
+      type: json_api
+      enabled: false   # 待实测接入
+      page_size: 50

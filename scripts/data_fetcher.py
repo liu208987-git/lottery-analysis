@@ -26,6 +26,7 @@ from pathlib import Path
 
 import pandas as pd
 import requests
+import yaml
 
 # ==========================================
 #  日志
@@ -57,6 +58,22 @@ HEADERS = {
                   'AppleWebKit/537.36 (KHTML, like Gecko) '
                   'Chrome/134.0.0.0 Safari/537.36',
 }
+
+
+def load_source_config():
+    """从 rules/data_sources.yaml 加载数据源配置"""
+    config_path = BASE_DIR / 'rules' / 'data_sources.yaml'
+    if config_path.exists():
+        with open(config_path, 'r', encoding='utf-8') as f:
+            return yaml.safe_load(f) or {}
+    return {}
+
+
+def get_source_urls(lottery, role='primary'):
+    """获取指定彩种的数据源 URL 列表"""
+    cfg = load_source_config()
+    sources = cfg.get(lottery, {}).get(role, [])
+    return [s for s in sources if s.get('enabled', True)]
 
 
 # ==========================================
@@ -192,6 +209,86 @@ def fetch_3d_from_zhcw(max_pages=10):
 
 
 # ==========================================
+#  福彩3D —— 东方财富 (eastmoney.com) ✅ 备用源
+# ==========================================
+
+def fetch_3d_from_eastmoney(max_pages=1):
+    """
+    从东方财富彩票页抓取福彩3D历史数据。
+
+    页面含 HTML 表格，每页约50条记录。号码通过 <span class='pellet'> 标签展示。
+
+    Args:
+        max_pages: 抓取页数（默认1页≈50条）
+
+    Returns:
+        pd.DataFrame | None: 列 [期号, 开奖日期, 中奖号码]
+    """
+    import re
+
+    all_rows = []
+    logger.info("开始抓取东方财富福彩3D数据...")
+
+    for page in range(1, max_pages + 1):
+        url = "https://caipiao.eastmoney.com/Result/History/fc3d?page={}".format(page)
+        try:
+            resp = requests.get(url, headers=HEADERS, timeout=15)
+            resp.encoding = 'utf-8'
+            if resp.status_code != 200:
+                logger.warning("东方财富第 {} 页返回 {}".format(page, resp.status_code))
+                continue
+
+            html = resp.text
+
+            # 提取行：包含 pellet 的 tr 块
+            rows = re.findall(r'<tr>\s*<td>.*?</tr>', html, re.DOTALL)
+            if not rows:
+                # fallback: 直接匹配 pellet 所在的行块
+                blocks = re.findall(
+                    r'<a[^>]*id=(\d{7})[^>]*>.*?'
+                    r'(20\d{2}-\d{2}-\d{2}).*?'
+                    r'<span class="pellet[^"]*"[^>]*>(\d)</span>\s*'
+                    r'<span class="pellet[^"]*"[^>]*>(\d)</span>\s*'
+                    r'<span class="pellet[^"]*"[^>]*>(\d)</span>',
+                    html, re.DOTALL
+                )
+                for block in blocks:
+                    issue, date, d1, d2, d3 = block
+                    all_rows.append({
+                        '期号': issue,
+                        '开奖日期': date,
+                        '中奖号码': d1 + d2 + d3,
+                    })
+            else:
+                for row in rows:
+                    issue_m = re.search(r'id=(\d{7})', row)
+                    date_m = re.search(r'(20\d{2}-\d{2}-\d{2})', row)
+                    digits = re.findall(r'<span class="pellet[^"]*"[^>]*>(\d)</span>', row)
+                    if issue_m and len(digits) >= 3:
+                        all_rows.append({
+                            '期号': issue_m.group(1),
+                            '开奖日期': date_m.group(1) if date_m else '',
+                            '中奖号码': ''.join(digits[:3]),
+                        })
+
+            logger.info("东方财富第 {} 页抓取成功 -> {} 条".format(page, len(blocks) if not rows else 0 or len(all_rows)))
+
+        except (requests.exceptions.RequestException, ValueError) as e:
+            logger.debug("东方财富第 {} 页失败: {}".format(page, e))
+
+    if not all_rows:
+        logger.error("东方财富: 所有页面抓取失败")
+        return None
+
+    df = pd.DataFrame(all_rows)
+    df = df.drop_duplicates(subset=['期号']).sort_values(by='期号', ascending=False).reset_index(drop=True)
+
+    logger.info("✅ 东方财富福彩3D 抓取完成，共 {} 条记录 ({} ~ {})".format(
+        len(df), df['期号'].iloc[-1], df['期号'].iloc[0]))
+    return df
+
+
+# ==========================================
 #  增量保存（通用格式：期号,日期,号码）
 # ==========================================
 
@@ -248,6 +345,8 @@ def main():
                         help='获取最近多少期（默认30）')
     parser.add_argument('--max-pages', type=int, default=10,
                         help='福彩3D抓取页数（每页约21条，默认10页）')
+    parser.add_argument('--source', choices=['zhcw', 'eastmoney', 'auto'], default='auto',
+                        help='福彩3D数据源：zhcw/eastmoney/auto（默认auto=主源+备用校验）')
     args = parser.parse_args()
 
     if not args.all and not args.lottery:
@@ -263,9 +362,44 @@ def main():
             save_incremental(pd.DataFrame(d), 'pls')
 
     if args.all or args.lottery == 'd3':
-        df_d3 = fetch_3d_from_zhcw(max_pages=args.max_pages)
-        if df_d3 is not None:
-            save_incremental(df_d3, 'd3')
+        if args.source == 'eastmoney':
+            df_d3 = fetch_3d_from_eastmoney()
+            if df_d3 is not None:
+                save_incremental(df_d3, 'd3')
+        elif args.source == 'zhcw':
+            df_d3 = fetch_3d_from_zhcw(max_pages=args.max_pages)
+            if df_d3 is not None:
+                save_incremental(df_d3, 'd3')
+        else:  # auto: 主源 + 双源校验 + fallback
+            df_main = fetch_3d_from_zhcw(max_pages=args.max_pages)
+            df_verify = None
+            try:
+                df_verify = fetch_3d_from_eastmoney()
+            except Exception:
+                logger.debug("东方财富校验源不可用")
+
+            # 优先保存主源
+            if df_main is not None:
+                save_incremental(df_main, 'd3')
+            elif df_verify is not None:
+                logger.warning("⚠️ 主源(zhcw)失败，回退到东方财富")
+                save_incremental(df_verify, 'd3')
+
+            # 双源校验
+            if df_main is not None and df_verify is not None \
+                    and len(df_main) > 0 and len(df_verify) > 0:
+                latest_main = df_main['期号'].iloc[0]
+                latest_v = df_verify[df_verify['期号'] == latest_main]
+                if len(latest_v) > 0:
+                    num_main = df_main[df_main['期号'] == latest_main]['中奖号码'].iloc[0]
+                    num_v = latest_v['中奖号码'].iloc[0]
+                    if num_main == num_v:
+                        logger.info("✅ 双源校验通过: 期号{} 号码{}一致".format(latest_main, num_main))
+                    else:
+                        logger.warning("⚠️ 双源校验不一致: 期号{} zhcw={} eastmoney={}".format(
+                            latest_main, num_main, num_v))
+                else:
+                    logger.info("ℹ️ 东方财富尚无期号{}的数据，跳过校验".format(latest_main))
 
     elapsed = datetime.now() - start
     logger.info("=== 更新完成 (耗时: {}) ===".format(elapsed))
