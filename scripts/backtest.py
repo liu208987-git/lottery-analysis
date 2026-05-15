@@ -134,7 +134,7 @@ def walk_forward(df: pd.DataFrame, theory: dict, top_k: int = 30,
     # 尝试加载真实的stats数据（用于理论分布和长期基准）
     stats_path = Path(__file__).resolve().parent.parent / 'data' / 'cache' / f'{lottery_code}_stats_latest.json'
     if stats_path.exists():
-        with open(stats_path) as f:
+        with open(stats_path, encoding='utf-8') as f:
             real_stats = json.load(f)
         stats_template['理论分布'] = real_stats.get('理论分布', theory)
     
@@ -214,20 +214,20 @@ def walk_forward(df: pd.DataFrame, theory: dict, top_k: int = 30,
             s = strategies[sname]
             s['candidates'].append(len(preds))
             
-            direct_hit = any(check_direct(pred, actual) for pred in preds)
-            group_hit = any(check_group(pred, actual) for pred in preds)
+            direct_count = sum(1 for pred in preds if check_direct(pred, actual))
+            group_only_count = sum(1 for pred in preds if check_group(pred, actual)) - direct_count
 
-            if direct_hit:
-                s['hits_direct'] += 1
-                s['miss_streak'] = 0
-            elif group_hit:
-                s['hits_group'] += 1
-                # 根据实际开奖形态区分组三/组六奖金
+            s['hits_direct'] += direct_count
+
+            if group_only_count > 0:
+                s['hits_group'] += group_only_count
                 a, b, c = actual
                 if a == b or b == c or a == c:
-                    s['hits_group3'] += 1
+                    s['hits_group3'] += group_only_count
                 else:
-                    s['hits_group6'] += 1
+                    s['hits_group6'] += group_only_count
+
+            if direct_count > 0 or group_only_count > 0:
                 s['miss_streak'] = 0
             else:
                 s['miss_streak'] += 1
@@ -303,6 +303,16 @@ def main():
     parser.add_argument('--train-window', type=int, default=100,
                         help='训练窗口期数')
     args = parser.parse_args()
+
+    if args.top_k <= 0:
+        print("[错误] --top-k 必须 > 0")
+        sys.exit(1)
+    if args.periods <= 0:
+        print("[错误] --periods 必须 > 0")
+        sys.exit(1)
+    if args.train_window <= 0:
+        print("[错误] --train-window 必须 > 0")
+        sys.exit(1)
     
     base_dir = Path(__file__).resolve().parent.parent
     lottery_name = '排列三' if args.lottery == 'pls' else '福彩3D'

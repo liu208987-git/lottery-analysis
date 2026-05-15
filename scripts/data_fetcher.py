@@ -63,22 +63,36 @@ HEADERS = {
 #  排列三 —— 体彩官方 API ✅ 可用
 # ==========================================
 
-def fetch_pls(limit=30):
-    """从体彩官方API获取排列三最新数据"""
+def fetch_pls(limit=30, max_retries=3):
+    """从体彩官方API获取排列三最新数据，567限频自动退避重试"""
     url = (
         "https://webapi.sporttery.cn/gateway/lottery/"
         f"getHistoryPageListV1.qry?gameNo=350133&provinceId=0"
         f"&pageSize={min(limit, 50)}&is498=1"
     )
-    try:
-        r = requests.get(url, headers=HEADERS, timeout=15)
-        r.raise_for_status()
-        data = r.json()
-    except requests.exceptions.RequestException as e:
-        logger.error("排列三API请求失败: {}".format(e))
-        return []
-    except (ValueError, KeyError) as e:
-        logger.error("排列三数据解析失败: {}".format(e))
+    for attempt in range(max_retries):
+        try:
+            r = requests.get(url, headers=HEADERS, timeout=15)
+            if r.status_code == 567:
+                wait = 5 * (attempt + 1)
+                logger.warning("排列三API返回567(限频)，{}秒后重试({}/{})".format(
+                    wait, attempt + 1, max_retries))
+                time.sleep(wait)
+                continue
+            r.raise_for_status()
+            data = r.json()
+            break
+        except requests.exceptions.RequestException as e:
+            if attempt < max_retries - 1:
+                time.sleep(3)
+                continue
+            logger.error("排列三API请求失败: {}".format(e))
+            return []
+        except (ValueError, KeyError) as e:
+            logger.error("排列三数据解析失败: {}".format(e))
+            return []
+    else:
+        logger.error("排列三API: {}次重试后仍失败".format(max_retries))
         return []
 
     results = []

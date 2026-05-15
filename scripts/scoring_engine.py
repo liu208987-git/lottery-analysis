@@ -170,7 +170,7 @@ def score_number(row, stats, theory, weights, params):
     details['跨度'] = (span_score, f"跨度={span_val}")
     total += span_score
 
-    # ---- 3. 形态评分 ----
+    # ---- 3. 形态评分（回归惩罚：偏离理论双向扣分） ----
     morph_ratio = {
         '组六': window_30.get('形态_组六_pct', 70),
         '组三': window_30.get('形态_组三_pct', 27),
@@ -178,10 +178,13 @@ def score_number(row, stats, theory, weights, params):
     }
     if morph == '豹子':
         morph_score = 0
-    elif morph == '组六':
-        morph_score = int(W['形态'] * min(morph_ratio['组六'] / 70, 1.5))
     else:
-        morph_score = int(W['形态'] * min(morph_ratio['组三'] / 27, 1.5))
+        theory_pct = 70 if morph == '组六' else 27
+        actual_pct = morph_ratio['组六'] if morph == '组六' else morph_ratio['组三']
+        # 回归惩罚: 实际偏离理论越大扣分越多，双向对称
+        ratio = 1.0 + (theory_pct - actual_pct) / theory_pct
+        ratio = max(0.2, min(1.8, ratio))
+        morph_score = int(W['形态'] * ratio)
     morph_score = min(morph_score, W['形态'])
     details['形态'] = (morph_score, f"形态={morph}")
     total += morph_score

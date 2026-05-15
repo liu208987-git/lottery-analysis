@@ -24,6 +24,17 @@ import matplotlib
 matplotlib.use('Agg')
 import matplotlib.pyplot as plt
 
+# 探测中文字体，优先使用系统已安装的
+_CJK_FONTS = ['SimHei', 'Microsoft YaHei', 'WenQuanYi Micro Hei',
+              'Noto Sans CJK SC', 'Source Han Sans SC',
+              'PingFang SC', 'Hiragino Sans GB', 'sans-serif']
+from matplotlib.font_manager import FontManager
+_available = {f.name for f in FontManager().ttflist}
+_found = next((f for f in _CJK_FONTS if f in _available), None)
+if _found:
+    plt.rcParams['font.sans-serif'] = [_found, 'sans-serif']
+plt.rcParams['axes.unicode_minus'] = False
+
 # plotly 可选
 try:
     import plotly.graph_objects as go
