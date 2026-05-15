@@ -43,21 +43,21 @@ def light_filter(nums: list, exclude_baozi: bool = True, extreme_sum: bool = Tru
 def main():
     parser = argparse.ArgumentParser(description='轻量预过滤（降级版）')
     parser.add_argument('--lottery', required=True, choices=['pls', 'd3'])
-    parser.add_argument('--no-baozi', action='store_true', default=True,
-                        help='排除豹子')
-    parser.add_argument('--no-extreme', action='store_true', default=True,
-                        help='排除极端和值')
+    parser.add_argument('--no-baozi', action='store_false', dest='exclude_baozi',
+                        help='包含豹子（默认排除）')
+    parser.add_argument('--no-extreme', action='store_false', dest='exclude_extreme',
+                        help='包含极端和值（默认排除）')
     args = parser.parse_args()
-    
+
     all_nums = generate_all()
-    filtered = light_filter(all_nums, args.no_baozi, args.no_extreme)
+    filtered = light_filter(all_nums, args.exclude_baozi, args.exclude_extreme)
     
     print(f"\n{'='*50}")
     print(f"  轻量预过滤 - {'排列三' if args.lottery=='pls' else '福彩3D'}")
     print(f"{'='*50}")
     print(f"  原始: {len(all_nums)} 注")
-    print(f"  排除豹子: {'是' if args.no_baozi else '否'}")
-    print(f"  排除极端和值: {'是' if args.no_extreme else '否'}")
+    print(f"  排除豹子: {'是' if args.exclude_baozi else '否'}")
+    print(f"  排除极端和值: {'是' if args.exclude_extreme else '否'}")
     print(f"  剩余: {len(filtered)} 注")
     print(f"  ⚠️  此模块已降级，主要过滤逻辑请使用 scoring_engine.py")
     print(f"{'='*50}")

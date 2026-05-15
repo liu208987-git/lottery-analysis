@@ -42,11 +42,12 @@ def load_weights(weight_path=None):
     if weight_path is None:
         weight_path = base / 'rules' / 'scoring_weights.yaml'
     else:
-        weight_path = base / weight_path
+        p = Path(weight_path)
+        weight_path = p if p.is_absolute() else base / p
 
     if weight_path.exists():
         with open(weight_path, 'r', encoding='utf-8') as f:
-            cfg = yaml.safe_load(f)
+            cfg = yaml.safe_load(f) or {}
         w = cfg.get('weights', {})
         # 兼容旧键名（中文）
         weights = {
@@ -150,7 +151,7 @@ def score_number(row, stats, theory, weights, params):
     # ---- 1. 和值评分 ----
     theory_sum = {int(k): v for k, v in theory.get('和值', {}).items()}
     freq = theory_sum.get(s_val, 0)
-    max_freq = max(theory_sum.values()) if theory_sum else 1
+    max_freq = max(theory_sum.values()) if theory_sum and max(theory_sum.values()) > 0 else 1
     theory_score = int(W['和值'] * freq / max_freq)
 
     sum_freq_30 = {int(k): v for k, v in window_30.get('和值频率', {}).items() if v}
@@ -178,7 +179,7 @@ def score_number(row, stats, theory, weights, params):
     # ---- 2. 跨度评分 ----
     theory_span = {int(k): v for k, v in theory.get('跨度', {}).items()}
     freq_s = theory_span.get(span_val, 0)
-    max_s = max(theory_span.values()) if theory_span else 1
+    max_s = max(theory_span.values()) if theory_span and max(theory_span.values()) > 0 else 1
     theory_score_s = int(W['跨度'] * freq_s / max_s)
 
     span_freq_30 = {int(k): v for k, v in window_30.get('跨度频率', {}).items() if v}
@@ -220,13 +221,13 @@ def score_number(row, stats, theory, weights, params):
 
     # ---- 4. 奇偶评分 ----
     odd = row['奇数']
-    odd_score = W['奇偶'] if 1 <= odd <= 2 else 2
+    odd_score = W['奇偶'] if 1 <= odd <= 2 else max(1, W['奇偶'] // 4)
     details['奇偶'] = (odd_score, f"奇={odd}")
     total += odd_score
 
     # ---- 5. 大小评分 ----
     big = row['大号']
-    big_score = W['大小'] if 1 <= big <= 2 else 2
+    big_score = W['大小'] if 1 <= big <= 2 else max(1, W['大小'] // 4)
     details['大小'] = (big_score, f"大={big}")
     total += big_score
 
@@ -308,7 +309,7 @@ def apply_diversity(scored, weights, params):
     gp = P.get('group_penalty', 5)
     ss = P.get('span_spread', 8)
 
-    # 组选惩罚
+    # 组选惩罚：同组选只保留最高分，其它降分
     best_per_group = {}
     for c in scored:
         g = c['组选']
@@ -317,7 +318,8 @@ def apply_diversity(scored, weights, params):
 
     for c in scored:
         detail = c['评分明细']
-        if best_per_group.get(c['组选']) is not c:
+        is_best = (best_per_group.get(c['组选']) is c)
+        if not is_best:
             c['总分'] -= gp
             if '多样性' not in detail:
                 detail['多样性'] = (0, "")
@@ -379,6 +381,12 @@ def generate_predictions(all_df, stats, theory, weights, params,
     if exclude_set is None:
         exclude_set = set()
 
+    # 预计算组选排除集合（O(1) 查找）
+    group_exclude = set()
+    if exclude_mode == 'group':
+        for e in exclude_set:
+            group_exclude.add(''.join(str(d) for d in sorted(e)))
+
     scored = []
     for _, row in all_df.iterrows():
         nums = (int(row['红球1']), int(row['红球2']), int(row['红球3']))
@@ -387,9 +395,8 @@ def generate_predictions(all_df, stats, theory, weights, params,
             if nums in exclude_set:
                 continue
         elif exclude_mode == 'group':
-            # 组选排除：只要组选号码相同就排除
-            gn = row['group_number']
-            if any(sorted(nums) == sorted(e) for e in exclude_set):
+            # 组选排除：使用预计算的 group_number 做 O(1) 查找
+            if row['group_number'] in group_exclude:
                 continue
 
         if row['形态'] == '豹子' and not include_baozi:
@@ -416,7 +423,7 @@ def generate_predictions(all_df, stats, theory, weights, params,
     return scored[:top_k], scored
 
 
-def _add_reason(rank, c, exclude_recent, exclude_mode, include_baozi):
+def _add_reason(rank, c):
     """为推荐号码生成机器理由 + 展示理由 + 一句话说明"""
     details = c['评分明细']
     top_reasons = []
@@ -632,7 +639,7 @@ def main():
         '生成信息': gen_info,
         '权重': weights,
         '参数': params,
-        '推荐': [_add_reason(i+1, c, args.exclude_recent, args.exclude_mode, args.include_baozi) for i, c in enumerate(top_k)],
+        '推荐': [_add_reason(i+1, c) for i, c in enumerate(top_k)],
     }
 
     with open(output_path, 'w', encoding='utf-8') as f:

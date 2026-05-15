@@ -73,13 +73,19 @@ def fetch_pls(limit=30):
         r = requests.get(url, headers=HEADERS, timeout=15)
         r.raise_for_status()
         data = r.json()
-    except Exception as e:
+    except requests.exceptions.RequestException as e:
         logger.error("排列三API请求失败: {}".format(e))
+        return []
+    except (ValueError, KeyError) as e:
+        logger.error("排列三数据解析失败: {}".format(e))
         return []
 
     results = []
     for item in data.get('value', {}).get('list', []):
         nums = item['lotteryDrawResult'].split()
+        if len(nums) < 3:
+            logger.warning("排列三: 期号{} 号码格式异常: {}".format(item['lotteryDrawNum'], item['lotteryDrawResult']))
+            continue
         results.append({
             '期号': item['lotteryDrawNum'],
             '日期': item['lotteryDrawTime'],
@@ -113,7 +119,7 @@ def fetch_3d_from_zhcw(max_pages=10):
     logger.info("开始抓取福彩3D数据，最多 {} 页...".format(max_pages))
 
     for page in range(1, max_pages + 1):
-        url = "http://kaijiang.zhcw.com/zhcw/html/3d/list_{}.html".format(page)
+        url = "https://kaijiang.zhcw.com/zhcw/html/3d/list_{}.html".format(page)
         try:
             resp = requests.get(url, headers=HEADERS, timeout=15)
             resp.encoding = 'utf-8'
@@ -152,7 +158,7 @@ def fetch_3d_from_zhcw(max_pages=10):
             if not found:
                 logger.debug("第 {} 页: 未找到开奖表格".format(page))
 
-        except Exception as e:
+        except (requests.exceptions.RequestException, ValueError) as e:
             logger.debug("第 {} 页失败: {}".format(page, e))
 
         time.sleep(1.5)

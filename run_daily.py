@@ -29,7 +29,7 @@ BASE = Path(__file__).resolve().parent
 
 
 def run_cmd(cmd, desc, timeout=300):
-    """执行 shell 命令并记录日志"""
+    """执行命令并记录日志，返回是否成功"""
     logger.info(f"▶️  {desc}")
     logger.debug(f"   $ {cmd}")
     try:
@@ -39,75 +39,83 @@ def run_cmd(cmd, desc, timeout=300):
         )
         if result.returncode == 0:
             logger.info(f"✅ {desc}")
-            # 打印最后2行关键输出
             lines = [l for l in result.stdout.decode().split('\n') if l.strip()]
             if lines:
                 for line in lines[-2:]:
                     logger.info(f"   {line.strip()}")
+            return True
         else:
             logger.error(f"❌ {desc} 失败")
             for line in result.stderr.decode().strip().split('\n')[-5:]:
                 logger.error(f"   {line}")
+            return False
     except subprocess.TimeoutExpired:
         logger.error(f"⏰ {desc} 超时 ({timeout}s)")
+        return False
     except Exception as e:
         logger.error(f"💥 {desc} 异常: {e}")
+        return False
 
 
 def pipeline(lottery, label, skiprows=3):
-    """单个彩种的完整流水线"""
+    """单个彩种的完整流水线，任一步骤失败则停止"""
     raw_file = f"data/raw/{lottery}_raw.csv"
     feat_file = f"data/processed/{lottery}_feat.csv"
 
     # 1. 数据更新
-    run_cmd(
+    if not run_cmd(
         f"python scripts/data_fetcher.py --lottery {lottery}",
         f"{label} 数据更新",
         timeout=180,
-    )
+    ):
+        logger.warning(f"⚠️ {label} 数据更新失败，继续使用现有数据")
 
     # 2. 特征工程
     if lottery == 'pls':
-        run_cmd(
+        if not run_cmd(
             f"python scripts/feature_engine.py --input {raw_file} --output {feat_file} "
             f"--lottery {lottery} --skiprows {skiprows} --force",
             f"{label} 特征工程",
             timeout=300,
-        )
+        ):
+            return
     else:
-        run_cmd(
+        if not run_cmd(
             f"python scripts/feature_engine.py --input {raw_file} --output {feat_file} "
             f"--lottery {lottery} --force",
             f"{label} 特征工程",
             timeout=300,
-        )
+        ):
+            return
 
     # 3. 统计引擎
-    run_cmd(
+    if not run_cmd(
         f"python scripts/stats_engine.py --lottery {lottery}",
         f"{label} 统计引擎",
         timeout=120,
-    )
+    ):
+        return
 
     # 4. 评分预测
-    run_cmd(
+    if not run_cmd(
         f"python scripts/scoring_engine.py --lottery {lottery} --top-k 30",
         f"{label} 评分预测",
         timeout=120,
-    )
+    ):
+        return
 
     # 5. 可视化（可选依赖，失败不影响预测）
     charts_dir = BASE / 'output' / 'charts'
-    if charts_dir.exists():
-        try:
-            import matplotlib  # noqa: F401
-            run_cmd(
-                f"python scripts/visualize.py --lottery {lottery} --chart trend --output-format html",
-                f"{label} 可视化",
-                timeout=120,
-            )
-        except ImportError:
-            logger.info(f"   ℹ️ {label} 可视化跳过（matplotlib未安装）")
+    charts_dir.mkdir(parents=True, exist_ok=True)
+    try:
+        import matplotlib  # noqa: F401
+        run_cmd(
+            f"python scripts/visualize.py --lottery {lottery} --chart trend --output-format html",
+            f"{label} 可视化",
+            timeout=120,
+        )
+    except ImportError:
+        logger.info(f"   ℹ️ {label} 可视化跳过（matplotlib未安装）")
 
 
 def main():
