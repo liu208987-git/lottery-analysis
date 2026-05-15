@@ -96,14 +96,18 @@ def pipeline(lottery, label, skiprows=3):
         timeout=120,
     )
 
-    # 5. 可视化（仅当 output/charts 目录存在）
+    # 5. 可视化（可选依赖，失败不影响预测）
     charts_dir = BASE / 'output' / 'charts'
     if charts_dir.exists():
-        run_cmd(
-            f"python scripts/visualize.py --lottery {lottery} --chart trend --output-format html",
-            f"{label} 可视化",
-            timeout=120,
-        )
+        try:
+            import matplotlib  # noqa: F401
+            run_cmd(
+                f"python scripts/visualize.py --lottery {lottery} --chart trend --output-format html",
+                f"{label} 可视化",
+                timeout=120,
+            )
+        except ImportError:
+            logger.info(f"   ℹ️ {label} 可视化跳过（matplotlib未安装）")
 
 
 def main():
