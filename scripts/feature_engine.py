@@ -55,12 +55,11 @@ def check_data(df: pd.DataFrame, lottery_name: str) -> dict:
         # 缺失期号（检查连续性）
         issues = df['期数'].values
         if len(issues) > 1:
-            expected_next = issues[0] + 1 if issues[0] < 100000 else issues[0] + 1
             gaps = []
             for i in range(1, len(issues)):
                 expected = issues[i-1] + 1
-                # 处理跨年（如 26104 → 26105 正常，26135 → 27001 跨年）
-                if issues[i-1] % 1000 > 990:  # 接近年底
+                # 处理跨年（期号格式 YYDDD：如 25358→26001，差≫1）
+                if issues[i] - issues[i-1] > 100:
                     continue
                 if issues[i] != expected:
                     gaps.append((issues[i-1], issues[i]))

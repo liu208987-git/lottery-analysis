@@ -23,7 +23,7 @@ import pandas as pd
 import numpy as np
 
 # 复用评分引擎
-from scoring_engine import generate_all, generate_predictions, score_number, load_weights
+from scoring_engine import generate_all, generate_predictions, load_weights
 
 
 # ==========================================
@@ -103,8 +103,8 @@ def walk_forward(df: pd.DataFrame, theory: dict, top_k: int = 30,
     避免未来函数。
     """
     total = len(df)
-    if test_periods > total - train_window - 1:
-        test_periods = total - train_window - 1
+    if test_periods > total - train_window:
+        test_periods = max(0, total - train_window)
     
     strategies = {
         '随机策略': {'hits_direct': 0, 'hits_group': 0, 'hits_group3': 0, 'hits_group6': 0, 'candidates': [], 'miss_streak': 0, 'max_miss_streak': 0},
@@ -132,11 +132,10 @@ def walk_forward(df: pd.DataFrame, theory: dict, top_k: int = 30,
     }
     
     # 尝试加载真实的stats数据（用于理论分布和长期基准）
-    import json as _json
     stats_path = Path(__file__).resolve().parent.parent / 'data' / 'cache' / f'{lottery_code}_stats_latest.json'
     if stats_path.exists():
         with open(stats_path) as f:
-            real_stats = _json.load(f)
+            real_stats = json.load(f)
         stats_template['理论分布'] = real_stats.get('理论分布', theory)
     
     print(f"\n  开始 walk-forward 回测 ({test_periods}期)...")
@@ -155,11 +154,11 @@ def walk_forward(df: pd.DataFrame, theory: dict, top_k: int = 30,
         target = df.iloc[target_idx]
         actual = (int(target['红球1']), int(target['红球2']), int(target['红球3']))
         
-        # 排除最近5期已出
+        # 排除目标期之前的最近5期（不是全局最新，避免未来信息泄露）
         exclude = set()
-        for j in range(min(5, i)):
-            if j < total:
-                prev = df.iloc[j]
+        for j in range(1, min(5, total - i - 1) + 1):
+            if i + j < total:
+                prev = df.iloc[i + j]
                 exclude.add((int(prev['红球1']), int(prev['红球2']), int(prev['红球3'])))
         
         # 更新stats（用训练数据模拟stats_engine）

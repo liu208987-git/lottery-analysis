@@ -13,7 +13,6 @@
 import argparse
 import json
 from pathlib import Path
-from itertools import product
 
 import pandas as pd
 import numpy as np
