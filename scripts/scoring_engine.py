@@ -403,6 +403,23 @@ def generate_predictions(all_df, stats, theory, weights, params,
     return scored[:top_k], scored
 
 
+def _add_reason(rank, c):
+    """为推荐号码生成推荐理由文本"""
+    details = c['评分明细']
+    top_reasons = []
+    # 找得分最高的3个维度
+    sorted_dims = sorted(details.items(), key=lambda x: x[1][0], reverse=True)
+    for dim, (score, desc) in sorted_dims[:3]:
+        if score > 0:
+            top_reasons.append(f"{dim}={score}")
+    return {
+        '排名': rank,
+        **{k: c[k] for k in ['号码', 'group_number', '和值', '跨度', '形态', '总分']},
+        '推荐理由': ' '.join(top_reasons),
+        '评分明细': details,
+    }
+
+
 # ==========================================
 #  主流程
 # ==========================================
@@ -499,7 +516,7 @@ def main():
             '高分阈值': 60,
             '高分组注数': sum(1 for c in scored if c['总分'] >= 60),
             '候选总数': len(scored),
-            '推荐': [{'排名': i+1, **c} for i, c in enumerate(top_k)],
+            '推荐': [_add_reason(i+1, c) for i, c in enumerate(top_k)],
         }, f, ensure_ascii=False, indent=2)
     print(f"\n  💾 保存: {output_path}")
     print(f"{'='*60}\n")

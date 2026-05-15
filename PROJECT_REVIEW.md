@@ -50,7 +50,8 @@
 | requirements.txt 锁版本号 | Grok | 项目跑在 Hermes venv 下（pandas 3.0.3, numpy 2.4.4），不锁版本号 = 装最新兼容版。锁死了反而哪天依赖冲突装不上。 |
 | 添加 plotly / seaborn / tqdm 依赖 | Grok | 当前代码未使用这三个库。`matplotlib` 已满足基础可视化需求。等真正需要交互图表或进度条时再加，避免装无用依赖。 |
 | data_fetcher 统一用 cwl.gov.cn API | Grok | Grok提供的代码全用福彩官网API。实测该API在服务器上返回 **403（WAF防护）**，不可用。排列三体彩API(webapi.sporttery.cn)保持独立实现，已验证可用。 |
-| feature_engine 替换为 Grok简化版 | Grok | Grok版本删除了数据检查、分位遗漏、group_number、冷热分类等核心功能(~240行代码)，换来了有bug的遗漏向量化(applymap在pandas 3.x已移除)和滚动特征。只提取了滚动特征加入现有版本。 |
+| feature_engine 替换为 Grok 简化版 | Grok | Grok版本删除了数据检查、分位遗漏、group_number、冷热分类等核心功能(~240行)，换来了有bug的遗漏向量化(applymap在pandas 3.x已移除)和滚动特征。只提取了滚动特征加入现有版本。 |
+| scoring_engine 替换为 Grok 简化版 | Grok | Grok版本(~75行)严重简化了评分引擎：删除多样性惩罚、冷号补偿、generate_predictions()、apply_diversity()，不兼容现有backtest。评分从9维降至4维，精度大幅下降。仅提取了"推荐理由"字段加入现有v2版本。 |
 | 添加 LSTM 预测模块 | GPT / Grok | **不采用**，理由：① 彩票开奖是独立同分布随机事件，无时间依赖，LSTM 对此类序列的预测能力等同于随机策略；② 服务器 2核CPU/3.5GB内存/无GPU，跑不了深度学习训练；③ 即便训出来 ROI 也趋近随机，不如把精力用在评分引擎和特征工程。ML 正确用途是特征工程辅助（聚类分析），而非直接预测号码。 |
 
 ## 架构变更记录
