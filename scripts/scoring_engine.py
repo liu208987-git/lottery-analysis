@@ -445,10 +445,10 @@ def get_git_commit(base_dir):
     try:
         result = subprocess.run(
             ['git', 'rev-parse', '--short', 'HEAD'],
-            cwd=base_dir, capture_output=True, text=True, timeout=5
+            stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=5
         )
         if result.returncode == 0:
-            return result.stdout.strip()
+            return result.stdout.decode().strip()
     except Exception:
         pass
     return None
@@ -576,29 +576,34 @@ def main():
     if git_commit:
         gen_info['git commit'] = git_commit
 
-    # 过滤说明
-    filter_desc = f"排除近{args.exclude_recent}期（{args.exclude_mode}模式）"
-    if not args.include_baozi:
-        filter_desc += "，排除豹子"
+    # 过滤说明（对象格式）
+    filter_desc = {
+        '排除近N期': args.exclude_recent,
+        '是否排除豹子': not args.include_baozi,
+        '排除模式': args.exclude_mode,
+    }
 
     # 保存 JSON
     output_dir = base_dir / 'output' / 'predictions'
     output_dir.mkdir(parents=True, exist_ok=True)
     output_path = output_dir / f'{args.lottery}_predict_{target_issue}.json'
 
+    # 修正 gen_info 字段名为 代码版本
+    if git_commit:
+        gen_info['代码版本'] = gen_info.pop('git commit', '')
+    else:
+        gen_info['代码版本'] = None
+
     output_json = {
         '彩种': lottery_name,
         '数据截至期号': latest_issue,
         '预测期号': target_issue,
         '评分时间': datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
+        'top_k': args.top_k,
         '风险提示': risk_note,
         '摘要': summary,
-        '生成信息': gen_info,
         '过滤说明': filter_desc,
-        '排除模式': args.exclude_mode,
-        '包含豹子': args.include_baozi,
-        'top_k': args.top_k,
-        '排除近N期': args.exclude_recent,
+        '生成信息': gen_info,
         '权重': weights,
         '参数': params,
         '推荐': [_add_reason(i+1, c, args.exclude_recent, args.exclude_mode, args.include_baozi) for i, c in enumerate(top_k)],

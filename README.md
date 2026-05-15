@@ -18,10 +18,25 @@ python scripts/data_fetcher.py --all
 #     如果 d3 未获取到数据，参考下方「福彩3D数据说明」
 
 # 3. 完整预测流程（排列三）
-# 方式A：data_fetcher 生成的标准CSV（推荐）
-python scripts/feature_engine.py --input data/raw/pls_raw.csv --output data/processed/pls_feat.csv --lottery pls
-# 方式B：KittenCN/500.com 双表头CSV（需跳过前2行）
-# python scripts/feature_engine.py --input data/raw/pls_raw.csv --output data/processed/pls_feat.csv --lottery pls --skiprows 2
+# 模式 A：data_fetcher.py 生成的标准 CSV（推荐）
+#   data_fetcher 输出的 CSV 有 3 行非数据头（列名+2行中文说明）
+#   需用 --skiprows 3 跳过
+python scripts/data_fetcher.py --lottery pls
+python scripts/feature_engine.py \
+  --input data/raw/pls_raw.csv \
+  --output data/processed/pls_feat.csv \
+  --lottery pls \
+  --skiprows 3 \
+  --force
+
+# 模式 B：旧版 KittenCN / 500.com 双表头 CSV
+#   如果有独立的两行中文表头，用 --skiprows 2
+# python scripts/feature_engine.py \
+#   --input data/raw/pls_kitten.csv \
+#   --output data/processed/pls_feat.csv \
+#   --lottery pls \
+#   --skiprows 2 \
+#   --force
 
 python scripts/stats_engine.py --lottery pls
 python scripts/scoring_engine.py --lottery pls --top-k 30
