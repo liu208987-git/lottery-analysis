@@ -279,9 +279,22 @@ def read_raw(input_path: str, skiprows: int, lottery: str) -> pd.DataFrame:
         df = pd.read_csv(input_path, skiprows=skiprows, header=None,
                          names=['期数', '红球1', '红球2', '红球3'])
     else:
-        # konglr格式：有列名
+        # 支持两种格式：
+        # A: zhcw格式（简洁3列：期号,日期,号码）
+        # B: konglr格式（宽表：issue, frontWinningNum, ...）
         df = pd.read_csv(input_path)
-        if 'issue' in df.columns and '期数' not in df.columns:
+        if '号码' in df.columns:
+            # zhcw格式：从 号码 列拆出红球1,红球2,红球3
+            nums_str = df['号码'].astype(str).str.strip()
+            df['红球1'] = nums_str.str[0].fillna('0').astype(int)
+            df['红球2'] = nums_str.str[1].fillna('0').astype(int)
+            df['红球3'] = nums_str.str[2].fillna('0').astype(int)
+            # 统一列名为 期数
+            if '期号' in df.columns and '期数' not in df.columns:
+                df = df.rename(columns={'期号': '期数'})
+            if '期数' not in df.columns:
+                df = df.rename(columns={'issue': '期数'})
+        elif 'issue' in df.columns and '期数' not in df.columns:
             df = df.rename(columns={'issue': '期数'})
         if 'frontWinningNum' in df.columns and '红球1' not in df.columns:
             parts = df['frontWinningNum'].str.split(' ', expand=True)
