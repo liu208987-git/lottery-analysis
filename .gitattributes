@@ -1,0 +1,11 @@
+# 所有Python文件使用LF换行符
+*.py text eol=lf
+
+# 数据文件不进行换行符转换（GitHub上查看保留原始格式）
+*.csv -text
+
+# YAML/JSON/MD使用LF
+*.yaml text eol=lf
+*.yml text eol=lf
+*.json text eol=lf
+*.md text eol=lf
