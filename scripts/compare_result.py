@@ -105,7 +105,16 @@ def build_report(pred_json, actual, rows):
     min_span_diff = min(rows, key=lambda r: r['跨度差'])
     morph_matches = [r for r in rows if r['形态一致']]
 
+    # 一句话摘要（供 cron/Hermes 直接读取）
+    if direct_hit:
+        one_line = f"开奖 {actual['开奖号码']} | 直选命中第{best_direct['排名']}名 | 和值{actual['和值']} 跨度{actual['跨度']}"
+    elif group_hit:
+        one_line = f"开奖 {actual['开奖号码']} | 组选命中第{best_group['排名']}名 | 和值{actual['和值']} 跨度{actual['跨度']}"
+    else:
+        one_line = f"开奖 {actual['开奖号码']} | 未命中 最近和差{min_sum_diff['和值差']}跨差{min_span_diff['跨度差']} | 形态一致{morph_matches.__len__()}/{rows.__len__()}注"
+
     return {
+        '一句话摘要': one_line,
         '对比时间': datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
         '彩种': pred_json.get('彩种', ''),
         '预测期号': pred_json.get('预测期号', ''),
@@ -145,26 +154,30 @@ def print_report(report):
     hit = report['命中情况']
     best = report['最佳逼近']
 
+    number = actual['号码']
+
+    # 顶部醒目的开奖号码
     print(f"\n{'='*55}")
-    print(f"  {report['彩种']} 预测 vs 开奖对比")
+    print(f"  🎰 今日开奖号码")
     print(f"{'='*55}")
-    print(f"  预测期号: {report['预测期号']} | 实际期号: {report['实际期号']} "
-          f"({'✅ 匹配' if report['预测期号匹配'] else '⚠️ 不匹配'})")
-    print(f"  开奖号码: {actual['号码']} ({actual['形态']})")
-    print(f"  和值: {actual['和值']} | 跨度: {actual['跨度']} | 组选: {actual['组选']}")
-    print(f"  {'─'*55}")
+    print(f"")
+    print(f"         {number[0]}    {number[1]}    {number[2]}")
+    print(f"        {'━'*13}")
+    print(f"          {actual['形态']}  |  和值 {actual['和值']}  |  跨度 {actual['跨度']}")
+    print(f"")
+
+    # 预测对比
+    print(f"  📋 {report['彩种']} 预测对比 (预测期号 {report['预测期号']})")
 
     if hit['直选命中']:
         print(f"  🎯 直选命中！排名第 {hit['直选最佳排名']} 位")
     elif hit['组选命中']:
         print(f"  🏅 组选命中！排名第 {hit['组选最佳排名']} 位（直选未中）")
     else:
-        print(f"  ❌ 未命中")
-        print(f"  最佳逼近: 和值差{best['最小和值差']} | 跨度差{best['最小跨度差']}")
-        print(f"  形态一致: {best['形态一致数']}/{len(report['逐注对比'])} 注")
+        print(f"  ❌ 未命中 — 最佳逼近: 和值差{best['最小和值差']} | 跨度差{best['最小跨度差']}"
+              f" | 形态一致 {best['形态一致数']}/{len(report['逐注对比'])} 注")
 
     print(f"  {'─'*55}")
-    print(f"  前十注对比:")
     print(f"  {'排名':>4} {'预测':>6} {'直选':>4} {'组选':>4} {'和差':>4} {'跨差':>4} {'形态':>4}")
     for r in report['逐注对比'][:10]:
         print(f"  {r['排名']:>4} {r['预测号码']:>6} "
