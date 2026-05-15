@@ -240,6 +240,14 @@ def add_hot_cold(df: pd.DataFrame) -> pd.DataFrame:
     return df
 
 
+def add_rolling_features(df: pd.DataFrame) -> pd.DataFrame:
+    """滚动统计特征（近5/10/30期均值）"""
+    for window in [5, 10, 30]:
+        df[f'和值_ma{window}'] = df['和值'].rolling(window=window, min_periods=1).mean().round(1)
+        df[f'跨度_ma{window}'] = df['跨度'].rolling(window=window, min_periods=1).mean().round(1)
+    return df
+
+
 # ==========================================
 #  3. 主流程
 # ==========================================
@@ -330,6 +338,9 @@ def main():
     
     df = add_hot_cold(df)
     print(f"  ✅ 冷热分类完成")
+    
+    df = add_rolling_features(df)
+    print(f"  ✅ 滚动特征计算完成")
     
     # 6. 输出（按期号降序）
     df_out = df.sort_values('期数', ascending=False).reset_index(drop=True)
