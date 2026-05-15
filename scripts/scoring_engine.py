@@ -18,8 +18,10 @@
 
 import argparse
 import json
+import subprocess
 import sys
 from pathlib import Path
+from datetime import datetime
 
 import pandas as pd
 import numpy as np
@@ -354,7 +356,8 @@ def apply_diversity(scored, weights, params):
 # ==========================================
 
 def generate_predictions(all_df, stats, theory, weights, params,
-                         exclude_set=None, top_k=30):
+                         exclude_set=None, top_k=30,
+                         exclude_mode='direct', include_baozi=False):
     """对1000注号码评分 → 多样性调整 → 排序取Top-K
 
     参数
@@ -365,10 +368,12 @@ def generate_predictions(all_df, stats, theory, weights, params,
     weights, params :     load_weights() 的返回值
     exclude_set : set     要排除的 (红球1,红球2,红球3) 集合
     top_k : int           返回多少注
+    exclude_mode : str    'direct' = 直选排除, 'group' = 组选去重排除
+    include_baozi : bool  是否包含豹子
 
     返回
     ----
-    scored : list         全部候选（已排序、含多样性调整），元素为 dict
+    scored : list         全部候选（已排序、含多样性调整）
                           包含 号码/group_number/和值/跨度/形态/总分/评分明细/跨度值/组选
     """
     if exclude_set is None:
@@ -377,9 +382,17 @@ def generate_predictions(all_df, stats, theory, weights, params,
     scored = []
     for _, row in all_df.iterrows():
         nums = (int(row['红球1']), int(row['红球2']), int(row['红球3']))
-        if nums in exclude_set:
-            continue
-        if row['形态'] == '豹子':
+        # 排除近N期
+        if exclude_mode == 'direct':
+            if nums in exclude_set:
+                continue
+        elif exclude_mode == 'group':
+            # 组选排除：只要组选号码相同就排除
+            gn = row['group_number']
+            if any(sorted(nums) == sorted(e) for e in exclude_set):
+                continue
+
+        if row['形态'] == '豹子' and not include_baozi:
             continue
 
         result = score_number(row, stats, theory, weights, params)
@@ -403,8 +416,8 @@ def generate_predictions(all_df, stats, theory, weights, params,
     return scored[:top_k], scored
 
 
-def _add_reason(rank, c):
-    """为推荐号码生成推荐理由文本"""
+def _add_reason(rank, c, exclude_recent, exclude_mode, include_baozi):
+    """为推荐号码生成机器理由 + 展示理由"""
     details = c['评分明细']
     top_reasons = []
     # 找得分最高的3个维度
@@ -412,12 +425,33 @@ def _add_reason(rank, c):
     for dim, (score, desc) in sorted_dims[:3]:
         if score > 0:
             top_reasons.append(f"{dim}={score}")
+
+    # 展示理由（适合微信/Hermes推送，中文描述）
+    total = c['总分']
+    dim_text = ' '.join(top_reasons)
+    display = f"第{rank}名 | {c['号码']} ({c['形态']}) | 总分{total} | {dim_text}"
+
     return {
         '排名': rank,
         **{k: c[k] for k in ['号码', 'group_number', '和值', '跨度', '形态', '总分']},
         '推荐理由': ' '.join(top_reasons),
+        '展示理由': display,
         '评分明细': details,
     }
+
+
+def get_git_commit(base_dir):
+    """获取当前git commit hash（失败返回 None）"""
+    try:
+        result = subprocess.run(
+            ['git', 'rev-parse', '--short', 'HEAD'],
+            cwd=base_dir, capture_output=True, text=True, timeout=5
+        )
+        if result.returncode == 0:
+            return result.stdout.strip()
+    except Exception:
+        pass
+    return None
 
 
 # ==========================================
@@ -436,6 +470,12 @@ def main():
                         help='评分权重YAML路径（相对项目根）')
     parser.add_argument('--detail', action='store_true',
                         help='打印每注评分明细')
+    parser.add_argument('--exclude-mode', choices=['direct', 'group'], default='direct',
+                        help='排除模式: direct=直选排除, group=组选去重排除')
+    parser.add_argument('--include-baozi', action='store_true',
+                        help='包含豹子（默认排除）')
+    parser.add_argument('--target-issue', type=int,
+                        help='手动指定预测期号（默认=数据截至期号+1）')
     args = parser.parse_args()
 
     base_dir = Path(__file__).resolve().parent.parent
@@ -447,6 +487,7 @@ def main():
     print(f"  🎯 {lottery_name} 评分预测引擎 v2")
     print(f"{'='*60}")
     print(f"  Top-K: {args.top_k} | 排除近{args.exclude_recent}期")
+    print(f"  排除模式: {args.exclude_mode} | 豹子: {'包含' if args.include_baozi else '排除'}")
     print(f"  权重: {json.dumps(weights, ensure_ascii=False)}")
     print(f"{'='*60}")
 
@@ -461,7 +502,12 @@ def main():
     theory = stats.get('理论分布', {})
 
     # 加载历史
-    recent_df = pd.read_csv(base_dir / 'data' / 'processed' / f'{args.lottery}_feat.csv')
+    feat_path = base_dir / 'data' / 'processed' / f'{args.lottery}_feat.csv'
+    recent_df = pd.read_csv(feat_path)
+
+    # 数据截至期号（第一行是最新一期）
+    latest_issue = int(recent_df.iloc[0]['期数'])
+    target_issue = args.target_issue if args.target_issue else latest_issue + 1
 
     # 排除近N期
     exclude_set = set()
@@ -470,54 +516,96 @@ def main():
             row = recent_df.iloc[i]
             exclude_set.add((int(row['红球1']), int(row['红球2']), int(row['红球3'])))
 
-    # 评分预测（复用 generate_predictions）
+    # 评分预测
     all_df = generate_all()
-    top_k, scored = generate_predictions(all_df, stats, theory, weights, params,
-                                          exclude_set=exclude_set, top_k=args.top_k)
+    top_k, scored = generate_predictions(
+        all_df, stats, theory, weights, params,
+        exclude_set=exclude_set, top_k=args.top_k,
+        exclude_mode=args.exclude_mode, include_baozi=args.include_baozi,
+    )
 
-    # 输出
+    # 终端输出
     print(f"\n  {'排名':>4} {'号码':>6} {'组选':>6} {'和值':>4} {'跨度':>4} {'形态':>4} {'总分':>4}")
     print(f"  {'─'*60}")
     span_in_top = {}
+    morph_in_top = {'组六': 0, '组三': 0, '豹子': 0}
     for i, c in enumerate(top_k):
-        detail_str = ' '.join(f"{k}={v[0]}" for k, v in c['评分明细'].items())
         print(f"  {i+1:>4} {c['号码']:>6} {c['group_number']:>6} {c['和值']:>4} {c['跨度']:>4} {c['形态']:>4} {c['总分']:>4}")
         sv = c['跨度']
         span_in_top[sv] = span_in_top.get(sv, 0) + 1
+        morph_in_top[c['形态']] = morph_in_top.get(c['形态'], 0) + 1
 
     # 统计
+    summary = {}
     if top_k:
-        avg = sum(c['总分'] for c in top_k) / len(top_k)
-        print(f"\n  📊 统计:")
-        print(f"    总分: {top_k[0]['总分']} ~ {top_k[-1]['总分']}")
-        print(f"    平均分: {avg:.1f}")
-        print(f"    跨度分布: {dict(sorted(span_in_top.items()))}")
-        print(f"    组选数: {len(set(c['group_number'] for c in top_k))}")
-        print(f"    高分组(≥60): {sum(1 for c in scored if c['总分'] >= 60)}注")
-        print(f"    候选总数: {len(scored)}")
+        scores = [c['总分'] for c in top_k]
+        avg_score = sum(scores) / len(scores)
+        group_count = len(set(c['group_number'] for c in top_k))
+        high_group_count = sum(1 for c in scored if c['总分'] >= 60)
+        candidates = len(scored)
+
+        summary = {
+            '总分最高': top_k[0]['总分'],
+            '总分最低': top_k[-1]['总分'],
+            '平均分': round(avg_score, 1),
+            '跨度分布': {str(k): v for k, v in sorted(span_in_top.items())},
+            '组选数量': group_count,
+            '形态分布': morph_in_top,
+            '高分组(≥60)': high_group_count,
+            '候选总数': candidates,
+        }
+
+        print(f"\n  📊 摘要:")
+        print(f"    总分最高: {summary['总分最高']} | 最低: {summary['总分最低']} | 平均: {summary['平均分']}")
+        print(f"    跨度分布: {summary['跨度分布']}")
+        print(f"    组选数: {summary['组选数量']} | 高分组(≥60): {summary['高分组(≥60)']} | 候选: {summary['候选总数']}")
 
     # 风险提示
-    print(f"\n  ⚠️  风险提示: 彩票开奖具有高度随机性，本评分仅基于历史统计和理论分布。")
+    risk_note = ("⚠️ 彩票开奖具有高度随机性，本评分仅基于历史统计和理论分布，"
+                 "不代表未来开奖结果。请理性看待，量力而行。")
+    print(f"\n  ⚠️  {risk_note}")
 
-    # 保存
+    # 生成信息
+    git_commit = get_git_commit(base_dir)
+    gen_info = {
+        '命令': f"python scripts/scoring_engine.py --lottery {args.lottery} --top-k {args.top_k} --exclude-recent {args.exclude_recent} --exclude-mode {args.exclude_mode}" + (" --include-baozi" if args.include_baozi else ""),
+        '权重文件': str(Path(args.weights).resolve() if args.weights else base_dir / 'rules' / 'scoring_weights.yaml'),
+        '统计缓存': str(stats_path),
+        '数据文件': str(feat_path),
+    }
+    if git_commit:
+        gen_info['git commit'] = git_commit
+
+    # 过滤说明
+    filter_desc = f"排除近{args.exclude_recent}期（{args.exclude_mode}模式）"
+    if not args.include_baozi:
+        filter_desc += "，排除豹子"
+
+    # 保存 JSON
     output_dir = base_dir / 'output' / 'predictions'
     output_dir.mkdir(parents=True, exist_ok=True)
-    latest_issue = int(recent_df.iloc[0]['期数'])
-    output_path = output_dir / f'{args.lottery}_predict_{latest_issue}.json'
+    output_path = output_dir / f'{args.lottery}_predict_{target_issue}.json'
+
+    output_json = {
+        '彩种': lottery_name,
+        '数据截至期号': latest_issue,
+        '预测期号': target_issue,
+        '评分时间': datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
+        '风险提示': risk_note,
+        '摘要': summary,
+        '生成信息': gen_info,
+        '过滤说明': filter_desc,
+        '排除模式': args.exclude_mode,
+        '包含豹子': args.include_baozi,
+        'top_k': args.top_k,
+        '排除近N期': args.exclude_recent,
+        '权重': weights,
+        '参数': params,
+        '推荐': [_add_reason(i+1, c, args.exclude_recent, args.exclude_mode, args.include_baozi) for i, c in enumerate(top_k)],
+    }
+
     with open(output_path, 'w', encoding='utf-8') as f:
-        json.dump({
-            '彩种': lottery_name,
-            '最新期号': latest_issue,
-            '评分时间': pd.Timestamp.now().strftime('%Y-%m-%d %H:%M:%S'),
-            'top_k': args.top_k,
-            '排除近N期': args.exclude_recent,
-            '权重': weights,
-            '参数': params,
-            '高分阈值': 60,
-            '高分组注数': sum(1 for c in scored if c['总分'] >= 60),
-            '候选总数': len(scored),
-            '推荐': [_add_reason(i+1, c) for i, c in enumerate(top_k)],
-        }, f, ensure_ascii=False, indent=2)
+        json.dump(output_json, f, ensure_ascii=False, indent=2)
     print(f"\n  💾 保存: {output_path}")
     print(f"{'='*60}\n")
 

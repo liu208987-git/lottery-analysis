@@ -69,7 +69,8 @@ def strategy_dynamic_scoring(all_nums_list: list, top_k: int, stats: dict, theor
     """动态评分策略（复用 scoring_engine.generate_predictions）"""
     all_df = generate_all()
     preds, _ = generate_predictions(all_df, stats, theory, weights, params,
-                                     exclude_set=exclude_nums, top_k=top_k)
+                                     exclude_set=exclude_nums, top_k=top_k,
+                                     exclude_mode='direct', include_baozi=False)
     return [(int(p['号码'][0]), int(p['号码'][1]), int(p['号码'][2])) for p in preds]
 
 
