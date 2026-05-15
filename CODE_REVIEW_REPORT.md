@@ -1,7 +1,7 @@
 # lottery-analysis 代码审查报告
 
 > 审查时间：2026-05-15 | 审查范围：全部 10 个文件（~3000 行 Python）
-> 修复已推送至分支：`code-review-fixes`
+> 修复已推送至分支：`code-review-fixes` | 第二轮修复已合入 main（v2.6）
 
 ---
 
@@ -280,16 +280,16 @@
 
 ---
 
-## 五、已知未修复项（需架构级重构）
+## 五、已知未修复项（v2.6 状态更新）
 
-| 问题 | 说明 |
-|------|------|
-| `feature_engine.py` 遗漏计算伪"向量化" | 实际为 Python for 循环，需完全重写为真正的向量化实现 |
-| `backtest.py` 缺少参数范围验证 | `--top-k` 传入 0 或负数无警告 |
-| `backtest.py` 多注中奖漏算 | `if/elif` 结构在多个预测命中时不累加 |
-| `stats_engine.py` 空 DataFrame 无防护 | `iloc[0]` 在 0 行数据时抛 IndexError |
-| `run_daily.py` `shell=True` | 使用字符串命令而非列表参数，建议改为列表形式 |
-| `data_fetcher.py` 竞态条件 | 文件读写之间无锁，并发执行可能丢数据 |
+| 问题 | 说明 | 状态 |
+|------|------|:----:|
+| `feature_engine.py` 遗漏计算伪"向量化" | 实际为 Python for 循环，需完全重写为真正的向量化实现 | 待修 |
+| `backtest.py` 缺少参数范围验证 | `--top-k` 传入 0 或负数无警告 | 待修 |
+| `backtest.py` 多注中奖漏算 | `if/elif` 结构在多个预测命中时不累加 | 待修 |
+| `stats_engine.py` 空 DataFrame 无防护 | `iloc[0]` 在 0 行数据时抛 IndexError | 待修 |
+| `run_daily.py` `shell=True` | ~~使用字符串命令而非列表参数~~ | ✅ v2.6 已修复 |
+| `data_fetcher.py` 竞态条件 | 文件读写之间无锁，并发执行可能丢数据 | 待修 |
 
 ---
 

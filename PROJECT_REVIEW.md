@@ -1,6 +1,6 @@
 # 项目审查总览
 
-> 最后更新：2026-05-15 | 版本：v2.3
+> 最后更新：2026-05-15 | 版本：v2.6
 
 ## 审查结论
 
@@ -9,11 +9,11 @@
 | 代码质量 | 🟢 良好 | 模块化，函数职责清晰 |
 | 评分引擎 | 🟢 v2 | YAML权重+多样性惩罚+冷补偿 |
 | 回测 | 🟢 v2 | Walk-forward + 三策略 + 奖金区分组三/组六 |
-| 数据源 | 🟡 待完善 | 排列三API(体彩官方,有限频567) ✅ 福彩3D API(福彩官网,有WAF 403) ❌ |
+| 数据源 | 🟡 待完善 | 排列三API(体彩官方,有限频567) ✅ 福彩3D(zhcw.com,单源) 🟡 seed数据归档 ✅ |
 | 依赖管理 | 🟢 有 | requirements.txt（不锁版本号，不装无用库） |
-| 文档 | 🟢 完善 | README + SKILL.md + PROJECT_REVIEW.md |
+| 文档 | 🟢 完善 | README + PROJECT_REVIEW.md + CODE_REVIEW_REPORT.md |
 | 可视化 | 🟢 完善 | matplotlib + plotly 交互图（走势/遗漏/热力图/Top50分布） |
-| 工程化 | 🟢 有 | .gitattributes, .gitignore, .gitkeep |
+| 工程化 | 🟢 有 | .gitattributes, .gitignore, .gitkeep, data/archived/种子数据 |
 
 ## 已修复的问题清单
 
@@ -37,9 +37,11 @@
 
 | 问题 | 严重程度 | 影响 |
 |:-----|:--------:|:-----|
-| 福彩3D自动爬取未完善 | 🔴 高 | 数据需要手动更新 |
+| 福彩3D备用数据源未建立 | 🟡 中 | zhcw.com 单一来源，长期可靠性不确定 |
 | 组三偏好回归惩罚未实现 | 🟡 中 | 形态评分可能被短期趋势带偏 |
-| 可视化未集成主流程 | 🟢 低 | 需手动调用 |
+| 回测多注命中不累加 | 🟡 中 | ROI 比实际偏低 |
+| 评分权重未系统调优 | 🟡 中 | 核心瓶颈，需网格搜索/贝叶斯优化 |
+| PNG中文乱码 | 🟢 低 | 系统缺中文字体，HTML交互图正常 |
 
 ### 不采纳的建议（附理由）
 
@@ -56,7 +58,26 @@
 
 ## 架构变更记录
 
-### v2.3（当前）
+### v2.6（当前）
+- 第二轮代码审查修复：`shell=True`→列表参数、`skiprows=0`、删除死代码
+- `scoring_engine.py`: `generate_all()` 复用 `feature_engine.add_features()`，消除~60行重复
+- 新增 `scripts/compare_result.py`：预测 vs 开奖对比
+- `run_daily.py`: CLI参数化(--top-k/--exclude-recent)、`ensure_seed_data()` 自动初始化
+- `data/archived/`: 种子数据归档（pls_history.csv + d3_history.csv）
+- Top30号码字段从完整 `scored` 列表取，修复 top_k<30 时误导
+- `backtest.py`/`visualize.py`: 添加文件缺失错误处理
+
+### v2.5
+- 新增 `run_daily.py` 一键每日运行脚本
+- `data_fetcher.py`: 福彩3D数据源升级为 zhcw.com pd.read_html
+- `feature_engine.py`: PLS 格式自动检测（标准三列 / 旧KittenCN格式）
+- `stats_engine.py`/`data_fetcher.py`: 统一 utf-8-sig 编码
+
+### v2.4
+- Plotly 交互式可视化（走势图/热力图 HTML 输出）
+- `visualize.py`: 双格式输出（PNG + HTML）
+
+### v2.3
 - `scoring_engine.py`: 新增 `generate_predictions()` 共用函数
 - `backtest.py`: `strategy_dynamic_scoring` 复用 generate_predictions，删除35行重复代码
 - `backtest.py`: 回测ROI奖金区分组三(346元)和组六(173元)
@@ -85,6 +106,7 @@ lottery-analysis/
 │   ├── stats_engine.py       # 多窗口统计 + 理论分布
 │   ├── scoring_engine.py     # 评分引擎v2 + generate_predictions()
 │   ├── backtest.py           # Walk-forward回测v2
+│   ├── compare_result.py     # 预测 vs 开奖对比
 │   ├── data_fetcher.py       # 自动拉取数据
 │   ├── filter_engine.py      # 轻量预过滤
 │   └── visualize.py          # 走势/遗漏/热力图
@@ -92,7 +114,7 @@ lottery-analysis/
 │   ├── scoring_weights.yaml  # 评分权重（可配置）
 │   ├── pls_default.yaml      # 排列三过滤规则
 │   └── d3_default.yaml       # 福彩3D过滤规则
-├── data/  (raw/processed/cache)
+├── data/  (raw/processed/archived/cache)
 ├── output/  (predictions/backtests/charts/reports)
 ├── logs/
 ├── README.md

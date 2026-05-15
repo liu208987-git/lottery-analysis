@@ -18,25 +18,20 @@ python scripts/data_fetcher.py --all
 #     如果 d3 未获取到数据，参考下方「福彩3D数据说明」
 
 # 3. 完整预测流程（排列三）
-# 先确认 pls_raw.csv 的表头行数，再选择合适的参数：
-#   head -10 data/raw/pls_raw.csv
-#
-# 当前 data_fetcher 生成的 CSV 含 3 行非数据头（列名+2行中文说明）：
 python scripts/data_fetcher.py --lottery pls
 python scripts/feature_engine.py \
   --input data/raw/pls_raw.csv \
   --output data/processed/pls_feat.csv \
   --lottery pls \
-  --skiprows 3 \
   --force
-# 如果 CSV 只有 2 行中文说明，改用 --skiprows 2
-# 如果 CSV 是标准三列格式（期号,日期,号码），不加 --skiprows
+# feature_engine 自动识别格式：标准三列(期号,日期,号码) 或 旧KittenCN格式
+# 旧格式需要 --skiprows 参数，新格式自动处理
 
 python scripts/stats_engine.py --lottery pls
 python scripts/scoring_engine.py --lottery pls --top-k 30
 
 # 4. 完整预测流程（福彩3D）
-# 先确认 data/raw/d3_raw.csv 存在（参考福彩3D数据说明准备）
+# 数据已内置 seed（data/archived/d3_history.csv），首次运行自动复制
 python scripts/feature_engine.py --input data/raw/d3_raw.csv --output data/processed/d3_feat.csv --lottery d3
 python scripts/stats_engine.py --lottery d3
 python scripts/scoring_engine.py --lottery d3 --top-k 30
@@ -56,6 +51,7 @@ lottery-analysis/
 │   ├── stats_engine.py       # 多窗口统计 + 理论分布对比
 │   ├── scoring_engine.py     # 评分引擎v2（YAML权重+多样性惩罚+冷补偿）
 │   ├── backtest.py           # Walk-forward回测（三策略对比）
+│   ├── compare_result.py     # 预测 vs 开奖对比（直选/组选命中、和值差、跨度差）
 │   ├── filter_engine.py      # 轻量预过滤器
 │   └── visualize.py          # 趋势图/热力图（可选）
 ├── rules/
@@ -65,6 +61,7 @@ lottery-analysis/
 ├── data/
 │   ├── raw/                  # 原始CSV（data_fetcher.py存放位置）
 │   ├── processed/            # 特征工程输出（113维）
+│   ├── archived/             # 种子数据（首次clone自动复制到raw/）
 │   └── cache/                # 统计缓存
 ├── output/
 │   ├── predictions/          # 预测结果JSON
@@ -107,9 +104,10 @@ lottery-analysis/
 
 ## 后续计划
 
-- [ ] 福彩3D自动爬取完善（当前仅支持排列三API）
-- [ ] 组三偏好回归惩罚（形态偏离理论分布越大扣分越多）
-- [ ] 可视化集成主流程（当前需手动调用）
+- [ ] 福彩3D备用数据源（当前仅 zhcw.com 单一来源）
+- [ ] 组三偏好回归惩罚（形态偏离理论分布时扣分）
+- [ ] 回测多注命中累加（修复 if/elif 只计一次的问题）
+- [ ] 评分权重系统调优（网格搜索/贝叶斯优化）
 - [ ] GitHub Actions 每日自动运行（可选）
 
 > ❌ **不考虑 LSTM/ML 预测模块**，原因：
@@ -190,6 +188,17 @@ python scripts/visualize.py --lottery pls --chart all --output-format html
 - **HTML 交互图**：走势图、热力图、Top50推荐分布（支持悬停/缩放）→ `output/charts/`
 - plotly 为可选依赖，未安装则自动跳过 HTML 输出
 
+## 预测 vs 开奖对比
+
+开奖后比对预测结果与实际开奖：
+
+```bash
+python scripts/compare_result.py --lottery pls
+python scripts/compare_result.py --lottery d3
+```
+
+输出：直选/组选命中、和值差、跨度差、形态一致性。报告保存至 `output/reports/{lottery}_compare_latest.json`。
+
 ## 自动化读取最新预测结果
 
 预测结果同步保存为固定路径，方便脚本/Hermes/GPT自动读取：
@@ -213,12 +222,14 @@ https://raw.githubusercontent.com/liu208987-git/lottery-analysis/main/output/pre
 ### 一键每日运行（推荐）
 
 ```bash
-python run_daily.py          # 跑排列三 + 福彩3D
-python run_daily.py pls      # 只跑排列三
-python run_daily.py d3       # 只跑福彩3D
+python run_daily.py                     # 跑排列三 + 福彩3D（默认Top-30）
+python run_daily.py pls                 # 只跑排列三
+python run_daily.py d3                  # 只跑福彩3D
+python run_daily.py --top-k 10          # 推荐10注
+python run_daily.py pls --top-k 20 --exclude-recent 3
 ```
 
-脚本自动执行：数据更新 → 特征工程 → 统计引擎 → 评分预测 → 可视化。
+脚本自动执行：seed数据初始化 → 数据更新 → 特征工程 → 统计引擎 → 评分预测 → 可视化。
 预测结果保存至 `output/predictions/{lottery}_predict_{期号}.json`。
 
 ### 手动流程
@@ -231,9 +242,10 @@ python run_daily.py d3       # 只跑福彩3D
 
 ## 已知问题与限制
 
-- 🟡 **数据源不完整**：福彩3D自动爬取尚未实现完整
-- 🟡 **评分跨度偏好**：跨度5因理论组合数最多，容易主导评分（已加入多样性惩罚缓解）
+- 🟡 **福彩3D自动爬取**：zhcw.com 可用但依赖单一源，长期稳定性不确定
+- 🟡 **回测ROI偏低**：评分权重未经过系统调优（网格搜索/贝叶斯优化）
 - 🟡 **PNG中文乱码**：matplotlib PNG 图中文字符显示为方框（系统缺中文字体），HTML 交互图正常
+- 🟡 **回测多注命中不累加**：同一期命中多注时只计一次，ROI 比实际偏低
 - ⚠️ **彩票结果高度随机**：所有分析仅基于历史统计，不代表未来结果
 
 ## 风险提示
@@ -242,7 +254,8 @@ python run_daily.py d3       # 只跑福彩3D
 
 ## 更新日志
 
-- **v2.5.1** (2026-05-15)：新增 `run_daily.py` 一键每日运行脚本；福彩3D数据源升级为zhcw.com浏览器提取；feature_engine兼容简洁3列CSV格式
+- **v2.6** (2026-05-15)：第二轮代码审查修复——shell=True→列表参数、skiprows=0、删除openTime死代码、is_monotonic_increasing优化、generate_all()复用add_features()去重；新增 compare_result.py 预测vs开奖对比脚本；run_daily.py CLI参数化(--top-k/--exclude-recent)；seed数据归档(data/archived/)；Top30字段修复
+- **v2.5.1** (2026-05-15)：新增 `run_daily.py` 一键每日运行脚本；福彩3D数据源升级为zhcw.com；feature_engine兼容简洁3列CSV格式
 - **v2.5** (2026-05-15)：scoring_engine JSON结构升级——过滤说明改object、代码版本字段、展示理由字段；README模式A/B说明(--skiprows 3/2)；git兼容Python 3.6；.gitignore放行output/predictions/*.json
 - **v2.4.1** (2026-05-15)：feature_engine.py numpy 2.x兼容修复(np.char.add)、遗漏特征向量化(20x加速)；scoring_engine新参数exclude-mode/include-baozi/target-issue；backtest同步
 - **v2.4** (2026-05-15)：Plotly交互式可视化(HTML双格式)；README福彩3D入口优化；GPT/Grok建议评估
