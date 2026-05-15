@@ -350,6 +350,60 @@ def apply_diversity(scored, weights, params):
 
 
 # ==========================================
+#  generate_predictions — 给 main() 和 backtest() 共用
+# ==========================================
+
+def generate_predictions(all_df, stats, theory, weights, params,
+                         exclude_set=None, top_k=30):
+    """对1000注号码评分 → 多样性调整 → 排序取Top-K
+
+    参数
+    ----
+    all_df : DataFrame   generate_all() 的输出
+    stats : dict          stats_engine 的输出（含窗口统计、理论分布）
+    theory : dict         stats['理论分布']
+    weights, params :     load_weights() 的返回值
+    exclude_set : set     要排除的 (红球1,红球2,红球3) 集合
+    top_k : int           返回多少注
+
+    返回
+    ----
+    scored : list         全部候选（已排序、含多样性调整），元素为 dict
+                          包含 号码/group_number/和值/跨度/形态/总分/评分明细/跨度值/组选
+    """
+    if exclude_set is None:
+        exclude_set = set()
+
+    scored = []
+    for _, row in all_df.iterrows():
+        nums = (int(row['红球1']), int(row['红球2']), int(row['红球3']))
+        if nums in exclude_set:
+            continue
+        if row['形态'] == '豹子':
+            continue
+
+        result = score_number(row, stats, theory, weights, params)
+        scored.append({
+            '号码': row['number'],
+            'group_number': row['group_number'],
+            '和值': int(row['和值']),
+            '跨度': int(row['跨度']),
+            '形态': row['形态'],
+            '总分': result['总分'],
+            '评分明细': result['明细'],
+            '跨度值': result['跨度值'],
+            '组选': result['组选'],
+        })
+
+    # 多样性调整
+    scored = apply_diversity(scored, weights, params)
+
+    # 排序取Top
+    scored.sort(key=lambda x: x['总分'], reverse=True)
+    return scored[:top_k], scored
+
+
+# ==========================================
 #  主流程
 # ==========================================
 
@@ -392,9 +446,6 @@ def main():
     # 加载历史
     recent_df = pd.read_csv(base_dir / 'data' / 'processed' / f'{args.lottery}_feat.csv')
 
-    # 生成所有号码
-    all_df = generate_all()
-
     # 排除近N期
     exclude_set = set()
     if args.exclude_recent > 0:
@@ -402,34 +453,10 @@ def main():
             row = recent_df.iloc[i]
             exclude_set.add((int(row['红球1']), int(row['红球2']), int(row['红球3'])))
 
-    # 评分
-    scored = []
-    for _, row in all_df.iterrows():
-        nums = (int(row['红球1']), int(row['红球2']), int(row['红球3']))
-        if nums in exclude_set:
-            continue
-        if row['形态'] == '豹子':
-            continue
-
-        result = score_number(row, stats, theory, weights, params)
-        scored.append({
-            '号码': row['number'],
-            'group_number': row['group_number'],
-            '和值': int(row['和值']),
-            '跨度': int(row['跨度']),
-            '形态': row['形态'],
-            '总分': result['总分'],
-            '评分明细': result['明细'],
-            '跨度值': result['跨度值'],
-            '组选': result['组选'],
-        })
-
-    # 多样性调整
-    scored = apply_diversity(scored, weights, params)
-
-    # 排序取Top
-    scored.sort(key=lambda x: x['总分'], reverse=True)
-    top_k = scored[:args.top_k]
+    # 评分预测（复用 generate_predictions）
+    all_df = generate_all()
+    top_k, scored = generate_predictions(all_df, stats, theory, weights, params,
+                                          exclude_set=exclude_set, top_k=args.top_k)
 
     # 输出
     print(f"\n  {'排名':>4} {'号码':>6} {'组选':>6} {'和值':>4} {'跨度':>4} {'形态':>4} {'总分':>4}")

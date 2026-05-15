@@ -23,7 +23,7 @@ import pandas as pd
 import numpy as np
 
 # 复用评分引擎
-from scoring_engine import generate_all, score_number, load_weights
+from scoring_engine import generate_all, generate_predictions, score_number, load_weights
 
 
 # ==========================================
@@ -66,37 +66,11 @@ def strategy_fixed_rule(all_nums: list, top_k: int, rng=None) -> list:
 
 def strategy_dynamic_scoring(all_nums_list: list, top_k: int, stats: dict, theory: dict,
                               exclude_nums: set, weights: dict, params: dict, rng=None) -> list:
-    """动态评分策略（复用 scoring_engine 逻辑）"""
-    scored = []
-    for a, b, c in all_nums_list:
-        if (a, b, c) in exclude_nums:
-            continue
-        
-        # 用简单字典模拟row
-        row = {
-            '红球1': a, '红球2': b, '红球3': c,
-            '和值': a + b + c,
-            '跨度': max(a, b, c) - min(a, b, c),
-            '奇数': (a % 2) + (b % 2) + (c % 2),
-            '偶数': 3 - ((a % 2) + (b % 2) + (c % 2)),
-            '大号': (a >= 5) + (b >= 5) + (c >= 5),
-            '小号': 3 - ((a >= 5) + (b >= 5) + (c >= 5)),
-            '0路数': (a % 3 == 0) + (b % 3 == 0) + (c % 3 == 0),
-            '1路数': (a % 3 == 1) + (b % 3 == 1) + (c % 3 == 1),
-            '2路数': (a % 3 == 2) + (b % 3 == 2) + (c % 3 == 2),
-        }
-        if a == b == c:
-            row['形态'] = '豹子'
-        elif a == b or b == c or a == c:
-            row['形态'] = '组三'
-        else:
-            row['形态'] = '组六'
-        
-        result = score_number(row, stats, theory, weights, params)
-        scored.append(((a, b, c), result['总分']))
-    
-    scored.sort(key=lambda x: x[1], reverse=True)
-    return [s[0] for s in scored[:top_k]]
+    """动态评分策略（复用 scoring_engine.generate_predictions）"""
+    all_df = generate_all()
+    preds, _ = generate_predictions(all_df, stats, theory, weights, params,
+                                     exclude_set=exclude_nums, top_k=top_k)
+    return [(int(p['号码'][0]), int(p['号码'][1]), int(p['号码'][2])) for p in preds]
 
 
 # ==========================================
@@ -132,9 +106,9 @@ def walk_forward(df: pd.DataFrame, theory: dict, top_k: int = 30,
         test_periods = total - train_window - 1
     
     strategies = {
-        '随机策略': {'hits_direct': 0, 'hits_group': 0, 'candidates': [], 'miss_streak': 0, 'max_miss_streak': 0},
-        '固定规则': {'hits_direct': 0, 'hits_group': 0, 'candidates': [], 'miss_streak': 0, 'max_miss_streak': 0},
-        '动态评分': {'hits_direct': 0, 'hits_group': 0, 'candidates': [], 'miss_streak': 0, 'max_miss_streak': 0},
+        '随机策略': {'hits_direct': 0, 'hits_group': 0, 'hits_group3': 0, 'hits_group6': 0, 'candidates': [], 'miss_streak': 0, 'max_miss_streak': 0},
+        '固定规则': {'hits_direct': 0, 'hits_group': 0, 'hits_group3': 0, 'hits_group6': 0, 'candidates': [], 'miss_streak': 0, 'max_miss_streak': 0},
+        '动态评分': {'hits_direct': 0, 'hits_group': 0, 'hits_group3': 0, 'hits_group6': 0, 'candidates': [], 'miss_streak': 0, 'max_miss_streak': 0},
     }
     
     rng = random.Random(42)  # 固定种子，保证可复现
@@ -248,6 +222,12 @@ def walk_forward(df: pd.DataFrame, theory: dict, top_k: int = 30,
                 s['miss_streak'] = 0
             elif group_hit:
                 s['hits_group'] += 1
+                # 根据实际开奖形态区分组三/组六奖金
+                a, b, c = actual
+                if a == b or b == c or a == c:
+                    s['hits_group3'] += 1
+                else:
+                    s['hits_group6'] += 1
                 s['miss_streak'] = 0
             else:
                 s['miss_streak'] += 1
@@ -262,7 +242,9 @@ def walk_forward(df: pd.DataFrame, theory: dict, top_k: int = 30,
         avg_candidates = np.mean(s['candidates']) if s['candidates'] else 0
         total_cost = avg_candidates * 2 * test_periods
         direct_prize = s['hits_direct'] * 1040
-        group_prize = s['hits_group'] * 173
+        group3_prize = s['hits_group3'] * 346
+        group6_prize = s['hits_group6'] * 173
+        group_prize = group3_prize + group6_prize
         total_prize = direct_prize + group_prize
         roi = (total_prize - total_cost) / total_cost * 100 if total_cost > 0 else 0
         
