@@ -258,7 +258,7 @@ def main():
     print(f"{'='*50}")
     
     # 1. 加载数据（强制按期号降序，新→旧）
-    df = pd.read_csv(data_path)
+    df = pd.read_csv(data_path, encoding='utf-8-sig')
     df = df.sort_values('期数', ascending=False).reset_index(drop=True)
     print(f"  📊 数据: {data_path}")
     print(f"  总期数: {len(df)}")

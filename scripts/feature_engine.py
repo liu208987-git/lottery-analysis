@@ -77,18 +77,8 @@ def check_data(df: pd.DataFrame, lottery_name: str) -> dict:
     
     # 1.4 排序检查（应按时序排序）
     if '期数' in df.columns:
-        is_sorted = all(df['期数'].iloc[i] <= df['期数'].iloc[i+1] for i in range(len(df)-1))
-        if not is_sorted:
+        if not df['期数'].is_monotonic_increasing:
             report['异常'].append("期号未按升序排列")
-    
-    # 1.5 日期检查
-    if 'openTime' in df.columns:
-        try:
-            dates = pd.to_datetime(df['openTime'], errors='coerce')
-            if dates.isnull().any():
-                report['异常'].append(f"有 {dates.isnull().sum()} 个无效日期")
-        except Exception:
-            pass
     
     # 汇总
     report['异常数'] = len(report['异常'])
@@ -272,16 +262,26 @@ def read_raw(input_path: str, skiprows: int, lottery: str) -> pd.DataFrame:
         sys.exit(1)
     
     if lottery == 'pls':
-        # KittenCN/500.com格式：跳过前几行，按位置命名
-        # 当前文件有3行非数据行（列名行 + 2行中文描述）
-        # 传递 --skiprows 3 以跳过所有非数据行
-        df = pd.read_csv(input_path, skiprows=skiprows, header=None,
-                         names=['期数', '红球1', '红球2', '红球3'])
+        # 先尝试标准3列格式（期号,日期,号码），再回退到KittenCN/500.com格式
+        df = pd.read_csv(input_path, nrows=0, encoding='utf-8-sig')
+        if '号码' in df.columns:
+            # 标准3列格式：从号码列拆出红球1,红球2,红球3
+            df = pd.read_csv(input_path, encoding='utf-8-sig')
+            nums_str = df['号码'].astype(str).str.strip()
+            df['红球1'] = nums_str.str[0].fillna('0').astype(int)
+            df['红球2'] = nums_str.str[1].fillna('0').astype(int)
+            df['红球3'] = nums_str.str[2].fillna('0').astype(int)
+            if '期号' in df.columns:
+                df = df.rename(columns={'期号': '期数'})
+        else:
+            # KittenCN/500.com格式：跳过前几行，按位置命名
+            df = pd.read_csv(input_path, skiprows=skiprows, header=None,
+                             names=['期数', '红球1', '红球2', '红球3'], encoding='utf-8-sig')
     else:
         # 支持两种格式：
         # A: zhcw格式（简洁3列：期号,日期,号码）
         # B: konglr格式（宽表：issue, frontWinningNum, ...）
-        df = pd.read_csv(input_path)
+        df = pd.read_csv(input_path, encoding='utf-8-sig')
         if '号码' in df.columns:
             # zhcw格式：从 号码 列拆出红球1,红球2,红球3
             nums_str = df['号码'].astype(str).str.strip()

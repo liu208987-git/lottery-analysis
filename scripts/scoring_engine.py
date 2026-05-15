@@ -85,44 +85,11 @@ def load_weights(weight_path=None):
 # ==========================================
 
 def generate_all():
-    """生成000-999共1000个号码"""
+    """生成000-999共1000个号码，复用 feature_engine.add_features 计算特征"""
+    from feature_engine import add_features
     nums = [(a, b, c) for a in range(10) for b in range(10) for c in range(10)]
     df = pd.DataFrame(nums, columns=['红球1', '红球2', '红球3'])
-    df['number'] = df['红球1'].astype(str) + df['红球2'].astype(str) + df['红球3'].astype(str)
-
-    # 基础特征
-    df['和值'] = df['红球1'] + df['红球2'] + df['红球3']
-    df['跨度'] = df[['红球1','红球2','红球3']].max(axis=1) - df[['红球1','红球2','红球3']].min(axis=1)
-    df['奇数'] = ((df['红球1'] % 2 == 1).astype(int) +
-                  (df['红球2'] % 2 == 1).astype(int) +
-                  (df['红球3'] % 2 == 1).astype(int))
-    df['偶数'] = 3 - df['奇数']
-    df['大号'] = ((df['红球1'] >= 5).astype(int) +
-                  (df['红球2'] >= 5).astype(int) +
-                  (df['红球3'] >= 5).astype(int))
-    df['小号'] = 3 - df['大号']
-
-    r0 = (df['红球1'] % 3 == 0).astype(int) + (df['红球2'] % 3 == 0).astype(int) + (df['红球3'] % 3 == 0).astype(int)
-    r1 = (df['红球1'] % 3 == 1).astype(int) + (df['红球2'] % 3 == 1).astype(int) + (df['红球3'] % 3 == 1).astype(int)
-    r2 = (df['红球1'] % 3 == 2).astype(int) + (df['红球2'] % 3 == 2).astype(int) + (df['红球3'] % 3 == 2).astype(int)
-    df['0路数'] = r0
-    df['1路数'] = r1
-    df['2路数'] = r2
-
-    # 形态
-    same_ab = (df['红球1'] == df['红球2'])
-    same_bc = (df['红球2'] == df['红球3'])
-    same_ac = (df['红球1'] == df['红球3'])
-    total_same = same_ab.astype(int) + same_bc.astype(int) + same_ac.astype(int)
-    df['形态'] = '组六'
-    df.loc[total_same == 3, '形态'] = '豹子'
-    df.loc[total_same == 1, '形态'] = '组三'
-
-    # group_number - 用Python字符串拼接避免numpy类型问题
-    sorted_nums = np.sort(df[['红球1','红球2','红球3']].values, axis=1)
-    gn = [str(int(sorted_nums[i, 0])) + str(int(sorted_nums[i, 1])) + str(int(sorted_nums[i, 2])) for i in range(len(df))]
-    df['group_number'] = gn
-
+    df = add_features(df)
     return df
 
 
@@ -532,7 +499,7 @@ def main():
 
     # 加载历史
     feat_path = base_dir / 'data' / 'processed' / f'{args.lottery}_feat.csv'
-    recent_df = pd.read_csv(feat_path)
+    recent_df = pd.read_csv(feat_path, encoding='utf-8-sig')
 
     # 数据截至期号（第一行是最新一期）
     latest_issue = int(recent_df.iloc[0]['期数'])

@@ -15,6 +15,7 @@
 """
 
 import argparse
+import sys
 from pathlib import Path
 
 import pandas as pd
@@ -250,7 +251,11 @@ def main():
     lottery_name = '排列三' if args.lottery == 'pls' else '福彩3D'
     
     data_path = base_dir / 'data' / 'processed' / f'{args.lottery}_feat.csv'
-    df = pd.read_csv(data_path)
+    if not data_path.exists():
+        print(f"[错误] 特征数据不存在: {data_path}")
+        print(f"  请先运行: python run_daily.py {args.lottery}")
+        sys.exit(1)
+    df = pd.read_csv(data_path, encoding='utf-8-sig')
     
     output_dir = base_dir / 'output' / 'charts'
     output_dir.mkdir(parents=True, exist_ok=True)

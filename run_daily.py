@@ -31,10 +31,10 @@ BASE = Path(__file__).resolve().parent
 def run_cmd(cmd, desc, timeout=300):
     """执行命令并记录日志，返回是否成功"""
     logger.info(f"▶️  {desc}")
-    logger.debug(f"   $ {cmd}")
+    logger.debug(f"   $ {' '.join(cmd)}")
     try:
         result = subprocess.run(
-            cmd, shell=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+            cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
             timeout=timeout, cwd=str(BASE),
         )
         if result.returncode == 0:
@@ -57,40 +57,32 @@ def run_cmd(cmd, desc, timeout=300):
         return False
 
 
-def pipeline(lottery, label, skiprows=3):
+def pipeline(lottery, label, skiprows=0):
     """单个彩种的完整流水线，任一步骤失败则停止"""
     raw_file = f"data/raw/{lottery}_raw.csv"
     feat_file = f"data/processed/{lottery}_feat.csv"
 
+    py = sys.executable
+
     # 1. 数据更新
     if not run_cmd(
-        f"python scripts/data_fetcher.py --lottery {lottery}",
+        [py, "scripts/data_fetcher.py", "--lottery", lottery],
         f"{label} 数据更新",
         timeout=180,
     ):
         logger.warning(f"⚠️ {label} 数据更新失败，继续使用现有数据")
 
     # 2. 特征工程
+    feat_cmd = [py, "scripts/feature_engine.py", "--input", raw_file,
+                "--output", feat_file, "--lottery", lottery, "--force"]
     if lottery == 'pls':
-        if not run_cmd(
-            f"python scripts/feature_engine.py --input {raw_file} --output {feat_file} "
-            f"--lottery {lottery} --skiprows {skiprows} --force",
-            f"{label} 特征工程",
-            timeout=300,
-        ):
-            return
-    else:
-        if not run_cmd(
-            f"python scripts/feature_engine.py --input {raw_file} --output {feat_file} "
-            f"--lottery {lottery} --force",
-            f"{label} 特征工程",
-            timeout=300,
-        ):
-            return
+        feat_cmd.extend(["--skiprows", str(skiprows)])
+    if not run_cmd(feat_cmd, f"{label} 特征工程", timeout=300):
+        return
 
     # 3. 统计引擎
     if not run_cmd(
-        f"python scripts/stats_engine.py --lottery {lottery}",
+        [py, "scripts/stats_engine.py", "--lottery", lottery],
         f"{label} 统计引擎",
         timeout=120,
     ):
@@ -98,7 +90,7 @@ def pipeline(lottery, label, skiprows=3):
 
     # 4. 评分预测
     if not run_cmd(
-        f"python scripts/scoring_engine.py --lottery {lottery} --top-k 30",
+        [py, "scripts/scoring_engine.py", "--lottery", lottery, "--top-k", "30"],
         f"{label} 评分预测",
         timeout=120,
     ):
@@ -110,7 +102,7 @@ def pipeline(lottery, label, skiprows=3):
     try:
         import matplotlib  # noqa: F401
         run_cmd(
-            f"python scripts/visualize.py --lottery {lottery} --chart trend --output-format html",
+            [py, "scripts/visualize.py", "--lottery", lottery, "--chart", "trend", "--output-format", "html"],
             f"{label} 可视化",
             timeout=120,
         )
@@ -126,7 +118,7 @@ def main():
     logger.info(f"{'='*50}")
 
     lotteries = {
-        'pls': ('排列三', 3),
+        'pls': ('排列三', 0),
         'd3': ('福彩3D', 0),
     }
 

@@ -203,7 +203,7 @@ def save_incremental(df, lottery_type):
     df_out['号码'] = df_out['号码'].astype(str).str.zfill(3)
 
     if file_path.exists():
-        old_df = pd.read_csv(file_path, dtype=str)
+        old_df = pd.read_csv(file_path, dtype=str, encoding='utf-8-sig')
         combined = pd.concat([old_df, df_out], ignore_index=True)
         combined = combined.drop_duplicates(subset=['期号'], keep='last')
     else:

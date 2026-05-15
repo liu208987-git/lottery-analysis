@@ -29,3 +29,4 @@ __pycache__/
 # 环境
 venv/
 .env
+.claude/
