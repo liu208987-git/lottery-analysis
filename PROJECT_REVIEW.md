@@ -19,7 +19,7 @@
 
 | 问题 | 发现来源 | 修复版本 | 说明 |
 |:-----|:--------:|:--------:|:-----|
-| Python文件被压缩显示 | GPT审查 | v2.2 | 实际是352/302/482行的正常文件，GitHub网页渲染问题 |
+| Python文件被压缩显示 | GPT审查 | v2.2 | 实际为正常多行文件，GitHub网页渲染问题。验证方法：`curl raw URL | wc -l` + `py_compile` |
 | README命令缺参数 | GPT审查 | v2.2 → v2.3 | 补充了 `--input`/`--output`/`--skiprows` |
 | data_fetcher退出逻辑 | GPT审查 | v2.2 | 数据不通过且无 `--force` 时 exit(1) |
 | stats_engine排序保护 | GPT审查 | v2.2 | 加 `sort_values('期数', ascending=False)` |

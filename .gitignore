@@ -6,8 +6,12 @@ data/processed/*
 data/cache/*
 !data/cache/.gitkeep
 data/*.csv
+
+# 输出目录（保留目录结构）
 output/*
+!output/*/
 !output/**/.gitkeep
+
 logs/*
 !logs/.gitkeep
 

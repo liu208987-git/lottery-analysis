@@ -16,7 +16,11 @@ pip install -r requirements.txt
 python scripts/data_fetcher.py --all
 
 # 3. 完整预测流程（排列三）
-python scripts/feature_engine.py --input data/raw/pls_raw.csv --output data/processed/pls_feat.csv --lottery pls --skiprows 2
+# 方式A：data_fetcher 生成的标准CSV（推荐）
+python scripts/feature_engine.py --input data/raw/pls_raw.csv --output data/processed/pls_feat.csv --lottery pls
+# 方式B：KittenCN/500.com 双表头CSV（需跳过前2行）
+# python scripts/feature_engine.py --input data/raw/pls_raw.csv --output data/processed/pls_feat.csv --lottery pls --skiprows 2
+
 python scripts/stats_engine.py --lottery pls
 python scripts/scoring_engine.py --lottery pls --top-k 30
 
@@ -109,7 +113,9 @@ lottery-analysis/
 | 彩种 | 源 | 方法 |
 |------|-----|------|
 | 排列三（体彩） | 体彩官方API | `data_fetcher.py` 自动拉取 JSON |
-| 福彩3D | kaggle/konglr历史CSV | 当前手动准备，后续自动 |
+| 福彩3D | kaggle/konglr历史CSV | 需手动准备 |
+
+> ⚠️ **福彩3D数据说明**：福彩官网 API（cwl.gov.cn）有 WAF 防护，当前 `data_fetcher.py --lottery d3` 可能返回空。需手动将原始 CSV 放置到 `data/raw/d3_raw.csv`，格式含 `期数`/`红球1`/`红球2`/`红球3` 列。可参考 kaggle 项目 [konglr/Lottery](https://github.com/konglr/Lottery) 获取历史数据。
 
 ### 开奖时间
 
@@ -131,6 +137,23 @@ python scripts/backtest.py --lottery pls --periods 100 --top-k 30
 1. **随机基准**：纯随机选30注
 2. **固定规则**：固定权重评分
 3. **动态调整**：根据近期表现调权重
+
+## 可视化
+
+生成走势图、遗漏图、热力图（可选）：
+
+```bash
+# 排列三全部图表
+python scripts/visualize.py --lottery pls --chart all
+# 福彩3D全部图表
+python scripts/visualize.py --lottery d3 --chart all
+# 单独生成走势图
+python scripts/visualize.py --lottery pls --chart trend
+# 单独生成热力图
+python scripts/visualize.py --lottery pls --chart heatmap
+```
+
+图表输出至 `output/charts/` 目录。
 
 ## 每日推荐流程
 

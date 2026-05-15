@@ -4,8 +4,10 @@
 ===========================================================
 
 用法：
-    # 排列三（KittenCN格式：skiprows=2）
+    # 排列三（data_fetcher标准CSV）
     python feature_engine.py --input data/raw/pls_raw.csv --output data/processed/pls_feat.csv --lottery pls
+    # 排列三（KittenCN/500.com双表头CSV：skiprows=2）
+    python feature_engine.py --input data/raw/pls_raw.csv --output data/processed/pls_feat.csv --lottery pls --skiprows 2
     
     # 福彩3D（konglr格式）
     python feature_engine.py --input data/raw/d3_raw.csv --output data/processed/d3_feat.csv --lottery d3
