@@ -21,6 +21,7 @@ import logging
 import sys
 import time
 from datetime import datetime
+from io import StringIO
 from pathlib import Path
 
 import pandas as pd
@@ -119,7 +120,8 @@ def fetch_3d_from_zhcw(max_pages=10):
     logger.info("开始抓取福彩3D数据，最多 {} 页...".format(max_pages))
 
     for page in range(1, max_pages + 1):
-        url = "https://kaijiang.zhcw.com/zhcw/html/3d/list_{}.html".format(page)
+        # zhcw HTTPS返回假200（内容实际为404页面），必须用HTTP
+        url = "http://kaijiang.zhcw.com/zhcw/html/3d/list_{}.html".format(page)
         try:
             resp = requests.get(url, headers=HEADERS, timeout=15)
             resp.encoding = 'utf-8'
@@ -128,7 +130,7 @@ def fetch_3d_from_zhcw(max_pages=10):
                 # 第1页通常是404（zhcw的列表页从第2页开始有效）
                 continue
 
-            dfs = pd.read_html(resp.text)
+            dfs = pd.read_html(StringIO(resp.text))
             found = False
             for df in dfs:
                 cols = df.columns
