@@ -1,8 +1,12 @@
 # 彩票数据分析与预测系统（排列三 / 福彩3D）
 
-基于多窗口统计 + 理论分布 + 动态评分引擎的彩票评分预测系统。对 000-999 全部 1000 注号码多维度打分排序，输出 Top-K 候选。**随机开奖，统计参考，不保证命中。**
+基于**多窗口统计 + 理论分布 + 动态评分引擎**的彩票评分预测系统。对 000-999 全部 1000 注号码多维度打分排序，输出 Top-K 候选。
+
+> ⚠️ **重要声明**：彩票开奖完全随机，本项目仅供学习、研究和娱乐参考。所有分析仅基于历史数据统计和理论分布，不代表未来开奖结果。请理性对待，量力而行。不保证任何命中率。
 
 ## 快速开始
+
+> 项目目录已预置 `.gitkeep` 占位文件。若从零克隆，可用 `mkdir -p data/raw data/processed data/cache output/predictions output/backtests output/charts output/reports logs` 创建完整目录结构。
 
 ```bash
 # 1. 安装依赖
@@ -24,10 +28,6 @@ python scripts/scoring_engine.py --lottery d3 --top-k 30
 # 5. 回测
 python scripts/backtest.py --lottery pls --periods 100 --top-k 30
 python scripts/backtest.py --lottery d3 --periods 100 --top-k 30
-
-# 6. 每日自动更新（cron）
-# 08:00 北京时间 → 最新数据+今晚预测
-# 21:30 北京时间 → 拉取今晚结果+明晚预测
 ```
 
 ## 项目结构
@@ -89,6 +89,15 @@ lottery-analysis/
 - **过热衰减**：近5期高频特征折扣
 - **理论回归惩罚**：形态/跨度偏离理论分布越大扣分越多
 
+## 后续计划
+
+- [ ] 福彩3D自动爬取完善（当前仅支持排列三API）
+- [ ] 组三偏好回归惩罚（形态偏离理论分布越大扣分越多）
+- [ ] 可视化集成主流程（当前需手动调用）
+- [ ] GitHub Actions 每日自动运行（可选）
+
+> ❌ **不考虑**：LSTM/ML 预测模块。彩票开奖是独立同分布随机事件，无时间依赖关系，LSTM 对此类序列的预测能力等同于随机策略。
+
 ## 数据来源
 
 | 彩种 | 源 | 方法 |
@@ -117,6 +126,13 @@ python scripts/backtest.py --lottery pls --periods 100 --top-k 30
 2. **固定规则**：固定权重评分
 3. **动态调整**：根据近期表现调权重
 
+## 每日推荐流程
+
+| 时间 | 操作 | 说明 |
+|:---|:-----|:-----|
+| 08:00 | `data_fetcher --all` → `feature_engine` → `scoring_engine` | 基于最新数据生成**当晚**预测 |
+| 21:40 | `data_fetcher --all` → `feature_engine` → `scoring_engine` | 拉取今晚开奖结果 + 生成**明晚**预测 |
+
 ## 已知问题与限制
 
 - 🟡 **数据源不完整**：福彩3D自动爬取尚未实现完整
@@ -130,6 +146,7 @@ python scripts/backtest.py --lottery pls --periods 100 --top-k 30
 
 ## 更新日志
 
+- **v2.3** (2026-05-15)：`generate_predictions()` 抽取共用、回测奖金区分组三(346元)/组六(173元)、新增 PROJECT_REVIEW.md
 - **v2.2** (2026-05-15)：P0/P1/P2 代码审查修复（README参数补全、回测组选判断修复、数据检查退出保护等）
 - **v2.0** (2026-05-15)：评分引擎重大升级——YAML权重配置、多样性惩罚、冷号补偿、data_fetcher 数据自动获取
 - **v1.0** (2026-05-14)：初始版本——基础评分引擎、特征工程、回测
