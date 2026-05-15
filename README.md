@@ -12,8 +12,10 @@
 # 1. 安装依赖
 pip install -r requirements.txt
 
-# 2. 更新数据（自动从体彩/福彩API拉取）
+# 2. 更新数据
 python scripts/data_fetcher.py --all
+#     ⚠️ 福彩3D自动抓取可能因 cwl.gov.cn WAF 返回 403→空数据
+#     如果 d3 未获取到数据，参考下方「福彩3D数据说明」
 
 # 3. 完整预测流程（排列三）
 # 方式A：data_fetcher 生成的标准CSV（推荐）
@@ -25,6 +27,7 @@ python scripts/stats_engine.py --lottery pls
 python scripts/scoring_engine.py --lottery pls --top-k 30
 
 # 4. 完整预测流程（福彩3D）
+# 先确认 data/raw/d3_raw.csv 存在（参考福彩3D数据说明准备）
 python scripts/feature_engine.py --input data/raw/d3_raw.csv --output data/processed/d3_feat.csv --lottery d3
 python scripts/stats_engine.py --lottery d3
 python scripts/scoring_engine.py --lottery d3 --top-k 30
@@ -112,10 +115,25 @@ lottery-analysis/
 
 | 彩种 | 源 | 方法 |
 |------|-----|------|
-| 排列三（体彩） | 体彩官方API | `data_fetcher.py` 自动拉取 JSON |
-| 福彩3D | kaggle/konglr历史CSV | 需手动准备 |
+| 排列三（体彩） | 体彩官方API | `data_fetcher.py` 自动拉取 JSON | ✅ 已验证可用 |
+| 福彩3D | kaggle/konglr历史CSV | 需手动准备 | ❌ API有WAF 403 |
 
-> ⚠️ **福彩3D数据说明**：福彩官网 API（cwl.gov.cn）有 WAF 防护，当前 `data_fetcher.py --lottery d3` 可能返回空。需手动将原始 CSV 放置到 `data/raw/d3_raw.csv`，格式含 `期数`/`红球1`/`红球2`/`红球3` 列。可参考 kaggle 项目 [konglr/Lottery](https://github.com/konglr/Lottery) 获取历史数据。
+### 福彩3D手动数据准备
+
+> ⚠️ **当前 `data_fetcher.py --lottery d3` 可能返回空数据**（cwl.gov.cn WAF 403）。
+
+如果自动抓取失败，请手动准备 `data/raw/d3_raw.csv`：
+
+```csv
+期号,日期,号码
+2025123,2025-05-01,583
+2025122,2025-04-30,147
+2025121,2025-04-29,902
+```
+
+- 字段：`期号`（数字）、`日期`（YYYY-MM-DD）、`号码`（3位数字连写）
+- 可参考 [konglr/Lottery](https://github.com/konglr/Lottery) 获取历史数据
+- 准备好后继续执行第4步的预测流程即可
 
 ### 开奖时间
 
@@ -140,20 +158,22 @@ python scripts/backtest.py --lottery pls --periods 100 --top-k 30
 
 ## 可视化
 
-生成走势图、遗漏图、热力图（可选）：
+生成走势图、热力图（matplotlib PNG + plotly 交互 HTML）：
 
 ```bash
-# 排列三全部图表
+# 排列三全部图表（PNG + HTML 两种格式）
 python scripts/visualize.py --lottery pls --chart all
 # 福彩3D全部图表
 python scripts/visualize.py --lottery d3 --chart all
-# 单独生成走势图
+# 仅生成走势图
 python scripts/visualize.py --lottery pls --chart trend
-# 单独生成热力图
-python scripts/visualize.py --lottery pls --chart heatmap
+# 仅生成交互HTML（不含PNG）
+python scripts/visualize.py --lottery pls --chart all --output-format html
 ```
 
-图表输出至 `output/charts/` 目录。
+- **PNG 静态图**：走势图、遗漏图、热力图 → `output/charts/`
+- **HTML 交互图**：走势图、热力图、Top50推荐分布（支持悬停/缩放）→ `output/charts/`
+- plotly 为可选依赖，未安装则自动跳过 HTML 输出
 
 ## 每日推荐流程
 
@@ -161,12 +181,13 @@ python scripts/visualize.py --lottery pls --chart heatmap
 |:---|:-----|:-----|
 | 08:00 | `data_fetcher --all` → `feature_engine` → `scoring_engine` | 基于最新数据生成**当晚**预测 |
 | 21:40 | `data_fetcher --all` → `feature_engine` → `scoring_engine` | 拉取今晚开奖结果 + 生成**明晚**预测 |
+> ⚠️ 福彩3D自动抓取可能返回403为空。如需完整流程，d3数据请手动准备。
 
 ## 已知问题与限制
 
 - 🟡 **数据源不完整**：福彩3D自动爬取尚未实现完整
 - 🟡 **评分跨度偏好**：跨度5因理论组合数最多，容易主导评分（已加入多样性惩罚缓解）
-- 🟡 **可视化未集成**：visualize.py 存在但未正式接入主流程
+- 🟡 **PNG中文乱码**：matplotlib PNG 图中文字符显示为方框（系统缺中文字体），HTML 交互图正常
 - ⚠️ **彩票结果高度随机**：所有分析仅基于历史统计，不代表未来结果
 
 ## 风险提示

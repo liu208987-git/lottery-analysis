@@ -12,7 +12,7 @@
 | 数据源 | 🟡 待完善 | 排列三API(体彩官方,有限频567) ✅ 福彩3D API(福彩官网,有WAF 403) ❌ |
 | 依赖管理 | 🟢 有 | requirements.txt（不锁版本号，不装无用库） |
 | 文档 | 🟢 完善 | README + SKILL.md + PROJECT_REVIEW.md |
-| 可视化 | 🟢 有 | 三张基础图（走势/遗漏/热力图） |
+| 可视化 | 🟢 完善 | matplotlib + plotly 交互图（走势/遗漏/热力图/Top50分布） |
 | 工程化 | 🟢 有 | .gitattributes, .gitignore, .gitkeep |
 
 ## 已修复的问题清单

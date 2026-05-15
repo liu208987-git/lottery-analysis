@@ -5,4 +5,5 @@ numpy
 pyyaml
 matplotlib
 requests
+plotly    # 可选，未安装时 visualize.py 自动跳过交互HTML
 openpyxl
