@@ -192,10 +192,23 @@ python scripts/visualize.py --lottery pls --chart all --output-format html
 
 ## 每日推荐流程
 
+### 一键每日运行（推荐）
+
+```bash
+python run_daily.py          # 跑排列三 + 福彩3D
+python run_daily.py pls      # 只跑排列三
+python run_daily.py d3       # 只跑福彩3D
+```
+
+脚本自动执行：数据更新 → 特征工程 → 统计引擎 → 评分预测 → 可视化。
+预测结果保存至 `output/predictions/{lottery}_predict_{期号}.json`。
+
+### 手动流程
+
 | 时间 | 操作 | 说明 |
 |:---|:-----|:-----|
-| 08:00 | `data_fetcher --all` → `feature_engine` → `scoring_engine` | 基于最新数据生成**当晚**预测 |
-| 21:40 | `data_fetcher --all` → `feature_engine` → `scoring_engine` | 拉取今晚开奖结果 + 生成**明晚**预测 |
+| 08:00 | `python run_daily.py` | 基于最新数据生成**当晚**预测 |
+| 21:40 | `python run_daily.py` | 拉取今晚开奖结果 + 生成**明晚**预测 |
 > ⚠️ 福彩3D自动抓取可能返回403为空。如需完整流程，d3数据请手动准备。
 
 ## 已知问题与限制
@@ -211,6 +224,7 @@ python scripts/visualize.py --lottery pls --chart all --output-format html
 
 ## 更新日志
 
+- **v2.5.1** (2026-05-15)：新增 `run_daily.py` 一键每日运行脚本；福彩3D数据源升级为zhcw.com浏览器提取；feature_engine兼容简洁3列CSV格式
 - **v2.5** (2026-05-15)：scoring_engine JSON结构升级——过滤说明改object、代码版本字段、展示理由字段；README模式A/B说明(--skiprows 3/2)；git兼容Python 3.6；.gitignore放行output/predictions/*.json
 - **v2.4.1** (2026-05-15)：feature_engine.py numpy 2.x兼容修复(np.char.add)、遗漏特征向量化(20x加速)；scoring_engine新参数exclude-mode/include-baozi/target-issue；backtest同步
 - **v2.4** (2026-05-15)：Plotly交互式可视化(HTML双格式)；README福彩3D入口优化；GPT/Grok建议评估

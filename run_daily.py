@@ -1,0 +1,136 @@
+#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
+"""
+彩票分析每日一键运行脚本
+==========================
+支持排列三 + 福彩3D 全流程：
+  数据更新 → 特征工程 → 统计引擎 → 评分预测 → 可视化
+
+用法：
+    python run_daily.py              # 跑两个彩种
+    python run_daily.py pls          # 只跑排列三
+    python run_daily.py d3           # 只跑福彩3D
+"""
+
+import subprocess
+import sys
+import logging
+from datetime import datetime
+from pathlib import Path
+
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(levelname)s - %(message)s',
+    handlers=[logging.StreamHandler()],
+)
+logger = logging.getLogger(__name__)
+
+BASE = Path(__file__).resolve().parent
+
+
+def run_cmd(cmd, desc, timeout=300):
+    """执行 shell 命令并记录日志"""
+    logger.info(f"▶️  {desc}")
+    logger.debug(f"   $ {cmd}")
+    try:
+        result = subprocess.run(
+            cmd, shell=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+            timeout=timeout, cwd=str(BASE),
+        )
+        if result.returncode == 0:
+            logger.info(f"✅ {desc}")
+            # 打印最后2行关键输出
+            lines = [l for l in result.stdout.decode().split('\n') if l.strip()]
+            if lines:
+                for line in lines[-2:]:
+                    logger.info(f"   {line.strip()}")
+        else:
+            logger.error(f"❌ {desc} 失败")
+            for line in result.stderr.decode().strip().split('\n')[-5:]:
+                logger.error(f"   {line}")
+    except subprocess.TimeoutExpired:
+        logger.error(f"⏰ {desc} 超时 ({timeout}s)")
+    except Exception as e:
+        logger.error(f"💥 {desc} 异常: {e}")
+
+
+def pipeline(lottery, label, skiprows=3):
+    """单个彩种的完整流水线"""
+    raw_file = f"data/raw/{lottery}_raw.csv"
+    feat_file = f"data/processed/{lottery}_feat.csv"
+
+    # 1. 数据更新
+    run_cmd(
+        f"python scripts/data_fetcher.py --lottery {lottery}",
+        f"{label} 数据更新",
+        timeout=180,
+    )
+
+    # 2. 特征工程
+    if lottery == 'pls':
+        run_cmd(
+            f"python scripts/feature_engine.py --input {raw_file} --output {feat_file} "
+            f"--lottery {lottery} --skiprows {skiprows} --force",
+            f"{label} 特征工程",
+            timeout=300,
+        )
+    else:
+        run_cmd(
+            f"python scripts/feature_engine.py --input {raw_file} --output {feat_file} "
+            f"--lottery {lottery} --force",
+            f"{label} 特征工程",
+            timeout=300,
+        )
+
+    # 3. 统计引擎
+    run_cmd(
+        f"python scripts/stats_engine.py --lottery {lottery}",
+        f"{label} 统计引擎",
+        timeout=120,
+    )
+
+    # 4. 评分预测
+    run_cmd(
+        f"python scripts/scoring_engine.py --lottery {lottery} --top-k 30",
+        f"{label} 评分预测",
+        timeout=120,
+    )
+
+    # 5. 可视化（仅当 output/charts 目录存在）
+    charts_dir = BASE / 'output' / 'charts'
+    if charts_dir.exists():
+        run_cmd(
+            f"python scripts/visualize.py --lottery {lottery} --chart trend --output-format html",
+            f"{label} 可视化",
+            timeout=120,
+        )
+
+
+def main():
+    args = sys.argv[1:] if len(sys.argv) > 1 else ['pls', 'd3']
+    today = datetime.now().strftime('%Y-%m-%d %H:%M')
+    logger.info(f"{'='*50}")
+    logger.info(f"  彩票分析每日任务  {today}")
+    logger.info(f"{'='*50}")
+
+    lotteries = {
+        'pls': ('排列三', 3),
+        'd3': ('福彩3D', 0),
+    }
+
+    for key in args:
+        if key in lotteries:
+            label, skip = lotteries[key]
+            logger.info(f"")
+            logger.info(f"── {label} ──")
+            pipeline(key, label, skip)
+
+    logger.info(f"")
+    logger.info(f"{'='*50}")
+    logger.info(f"  ✅ 全部任务完成！")
+    logger.info(f"  预测文件: {BASE / 'output' / 'predictions/'}")
+    logger.info(f"{'='*50}")
+
+
+if __name__ == '__main__':
+    main()
