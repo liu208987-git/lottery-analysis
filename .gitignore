@@ -1,0 +1,18 @@
+# 数据文件（不提交到Git）
+data/raw/
+data/processed/
+data/cache/
+output/predictions/
+output/backtests/
+output/charts/
+output/reports/
+logs/
+
+# Python缓存
+__pycache__/
+*.pyc
+*.pyo
+
+# 环境
+venv/
+.env
