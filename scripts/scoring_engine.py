@@ -550,8 +550,8 @@ def main():
             '高分阈值': 60,
             '高分候选数': high_group_count,
             '候选总数': candidates,
-            'Top10号码': [c['号码'] for c in top_k[:10]],
-            'Top30号码': [c['号码'] for c in top_k[:30]],
+            'Top10号码': [c['号码'] for c in scored[:10]],
+            'Top30号码': [c['号码'] for c in scored[:30]],
         }
 
         print(f"\n  📊 摘要:")

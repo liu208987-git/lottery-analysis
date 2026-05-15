@@ -7,11 +7,14 @@
   数据更新 → 特征工程 → 统计引擎 → 评分预测 → 可视化
 
 用法：
-    python run_daily.py              # 跑两个彩种
-    python run_daily.py pls          # 只跑排列三
-    python run_daily.py d3           # 只跑福彩3D
+    python run_daily.py                     # 跑两个彩种（默认Top-30）
+    python run_daily.py pls                 # 只跑排列三
+    python run_daily.py d3                  # 只跑福彩3D
+    python run_daily.py --top-k 10          # 推荐10注
+    python run_daily.py pls --top-k 20 --exclude-recent 3
 """
 
+import argparse
 import subprocess
 import sys
 import logging
@@ -57,8 +60,20 @@ def run_cmd(cmd, desc, timeout=300):
         return False
 
 
-def pipeline(lottery, label, skiprows=0):
+def ensure_seed_data(lottery):
+    """如果 raw 文件不存在，从 archived 复制一份种子数据"""
+    raw_file = BASE / f"data/raw/{lottery}_raw.csv"
+    archived_file = BASE / f"data/archived/{lottery}_history.csv"
+
+    if not raw_file.exists() and archived_file.exists():
+        raw_file.parent.mkdir(parents=True, exist_ok=True)
+        raw_file.write_text(archived_file.read_text(encoding="utf-8-sig"), encoding="utf-8-sig")
+        logger.info(f"已从归档数据初始化: {raw_file}")
+
+
+def pipeline(lottery, label, skiprows=0, top_k=30, exclude_recent=5):
     """单个彩种的完整流水线，任一步骤失败则停止"""
+    ensure_seed_data(lottery)
     raw_file = f"data/raw/{lottery}_raw.csv"
     feat_file = f"data/processed/{lottery}_feat.csv"
 
@@ -90,8 +105,9 @@ def pipeline(lottery, label, skiprows=0):
 
     # 4. 评分预测
     if not run_cmd(
-        [py, "scripts/scoring_engine.py", "--lottery", lottery, "--top-k", "30"],
-        f"{label} 评分预测",
+        [py, "scripts/scoring_engine.py", "--lottery", lottery,
+         "--top-k", str(top_k), "--exclude-recent", str(exclude_recent)],
+        f"{label} 评分预测 (top-k={top_k}, exclude={exclude_recent})",
         timeout=120,
     ):
         return
@@ -111,10 +127,19 @@ def pipeline(lottery, label, skiprows=0):
 
 
 def main():
-    args = sys.argv[1:] if len(sys.argv) > 1 else ['pls', 'd3']
+    parser = argparse.ArgumentParser(description='彩票分析每日一键运行')
+    parser.add_argument('lotteries', nargs='*', default=['pls', 'd3'],
+                        help='彩种：pls d3（默认全部）')
+    parser.add_argument('--top-k', type=int, default=30,
+                        help='推荐注数（默认30）')
+    parser.add_argument('--exclude-recent', type=int, default=5,
+                        help='排除近N期已出号码（默认5）')
+    args = parser.parse_args()
+
     today = datetime.now().strftime('%Y-%m-%d %H:%M')
     logger.info(f"{'='*50}")
     logger.info(f"  彩票分析每日任务  {today}")
+    logger.info(f"  Top-K: {args.top_k} | 排除近{args.exclude_recent}期")
     logger.info(f"{'='*50}")
 
     lotteries = {
@@ -122,12 +147,12 @@ def main():
         'd3': ('福彩3D', 0),
     }
 
-    for key in args:
+    for key in args.lotteries:
         if key in lotteries:
             label, skip = lotteries[key]
             logger.info(f"")
             logger.info(f"── {label} ──")
-            pipeline(key, label, skip)
+            pipeline(key, label, skip, top_k=args.top_k, exclude_recent=args.exclude_recent)
 
     logger.info(f"")
     logger.info(f"{'='*50}")
