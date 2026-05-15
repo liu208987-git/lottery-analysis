@@ -1,11 +1,12 @@
 #!/usr/bin/env python3
 """
-权重自动调优（随机搜索）
-=======================
-用过去 N 期 walk-forward 回测，随机采样权重组合，按综合分排序。
+权重自动调优（随机搜索 + 贝叶斯优化）
+===================================
+用过去 N 期 walk-forward 回测，搜索最优权重组合。
 
 用法：
-    python scripts/tune_weights.py --lottery pls
+    python scripts/tune_weights.py --lottery pls                        # 随机搜索
+    python scripts/tune_weights.py --lottery pls --method optuna         # 贝叶斯优化(需pip install optuna)
     python scripts/tune_weights.py --lottery d3 --trials 50 --periods 80
 
 前置条件：output/reviews/review_history.csv 至少积累 15 期复盘数据。
@@ -109,14 +110,99 @@ def composite_score(result: dict, periods: int) -> float:
     return direct * 30 + group * 20 - max_miss * 2 + roi / 5
 
 
+def run_one_trial(sample, df, theory, top_k, periods, lottery):
+    """执行单次回测试验，返回 (score, backtest_result)"""
+    yaml_str = build_yaml(sample)
+    with tempfile.NamedTemporaryFile(
+        mode='w', suffix='.yaml', encoding='utf-8', delete=False
+    ) as f:
+        f.write(yaml_str)
+        tmp_path = f.name
+    try:
+        from backtest import walk_forward
+        bt = walk_forward(df, theory, top_k=top_k,
+                          test_periods=periods, train_window=100,
+                          lottery_code=lottery, weight_path=tmp_path)
+        score = composite_score(bt, periods)
+    except Exception:
+        score = -999
+        bt = {}
+    finally:
+        Path(tmp_path).unlink(missing_ok=True)
+    return score, bt
+
+
+def search_random(df, theory, args):
+    """随机搜索"""
+    random.seed(args.seed)
+    np.random.seed(args.seed)
+
+    results = []
+    best_score = -999
+    best_sample = None
+
+    for i in range(args.trials):
+        sample = sample_weights()
+        score, bt = run_one_trial(sample, df, theory, args.top_k, args.periods, args.lottery)
+        results.append({'trial': i + 1, 'weights': sample, 'score': score, 'backtest': bt})
+
+        if score > best_score:
+            best_score = score
+            best_sample = sample
+
+        if (i + 1) % 10 == 0:
+            print(f"  进度: {i+1}/{args.trials} | 当前最佳分: {best_score:.1f}")
+
+    return results, best_sample
+
+
+def search_optuna(df, theory, args):
+    """贝叶斯优化搜索（Optuna）"""
+    import optuna
+
+    def objective(trial):
+        sample = {}
+        for k, (lo, hi) in SEARCH_SPACE.items():
+            if k.startswith('overheat'):
+                sample[k] = round(trial.suggest_int(k, lo, hi) / 100.0, 2)
+            else:
+                sample[k] = trial.suggest_int(k, lo, hi)
+
+        score, _ = run_one_trial(sample, df, theory, args.top_k, args.periods, args.lottery)
+        return score
+
+    study = optuna.create_study(
+        direction='maximize',
+        sampler=optuna.samplers.TPESampler(seed=args.seed),
+    )
+
+    print(f"  优化器: TPE (Tree-structured Parzen Estimator)")
+    study.optimize(objective, n_trials=args.trials, show_progress_bar=False)
+
+    # 转换为相同格式
+    results = []
+    for i, t in enumerate(study.trials):
+        if t.state == optuna.trial.TrialState.COMPLETE:
+            results.append({
+                'trial': i + 1,
+                'weights': {k: t.params.get(k, (lo+hi)//2) for k, (lo, hi) in SEARCH_SPACE.items()},
+                'score': t.value,
+                'backtest': {},
+            })
+
+    return results, study.best_params
+
+
 # ── 主流程 ────────────────────────────────────────────
 
 def main():
-    parser = argparse.ArgumentParser(description='权重自动调优（随机搜索）')
+    parser = argparse.ArgumentParser(description='权重自动调优（随机搜索 + 贝叶斯优化）')
     parser.add_argument('--lottery', required=True, choices=['pls', 'd3'],
                         help='彩种')
+    parser.add_argument('--method', choices=['random', 'optuna'], default='random',
+                        help='搜索方法：random(随机采样) / optuna(贝叶斯优化，需pip install optuna)')
     parser.add_argument('--trials', type=int, default=30,
-                        help='随机采样次数（默认30）')
+                        help='搜索次数（默认30）')
     parser.add_argument('--periods', type=int, default=50,
                         help='回测期数（默认50）')
     parser.add_argument('--top-k', type=int, default=30,
@@ -140,6 +226,15 @@ def main():
         print(f"  继续运行每日流程即可自动积累。")
         return
 
+    # ── Optuna 可用性检查 ──
+    if args.method == 'optuna':
+        try:
+            import optuna  # noqa: F401
+        except ImportError:
+            print(f"\n  ⛔ Optuna 未安装。请执行: pip install optuna")
+            print(f"  或使用随机搜索: python scripts/tune_weights.py --lottery {args.lottery} --method random")
+            return
+
     print(f"\n  ✅ 复盘数据达标: {n_rows} 期 >= {MIN_REVIEW_ROWS} 期，开始调参。")
 
     # ── 加载数据 ──
@@ -155,49 +250,19 @@ def main():
     from stats_engine import generate_theoretical_distribution
     theory = generate_theoretical_distribution()
 
-    # ── 随机搜索 ──
-    random.seed(args.seed)
-    np.random.seed(args.seed)
+    # ── 搜索 ──
+    method_label = '贝叶斯优化(Optuna TPE)' if args.method == 'optuna' else '随机搜索'
 
     print(f"\n{'='*60}")
-    print(f"  🔧 {lottery_name} 权重调优")
+    print(f"  🔧 {lottery_name} 权重调优 [{method_label}]")
     print(f"{'='*60}")
-    print(f"  数据: {len(df)} 期 | 回测窗口: {args.periods} 期 | 采样: {args.trials} 次")
+    print(f"  数据: {len(df)} 期 | 回测窗口: {args.periods} 期 | 搜索: {args.trials} 次")
     print(f"  {'─'*60}")
 
-    results = []
-    best_score = -999
-    best_sample = None
-
-    for i in range(args.trials):
-        sample = sample_weights()
-        yaml_str = build_yaml(sample)
-
-        with tempfile.NamedTemporaryFile(
-            mode='w', suffix='.yaml', encoding='utf-8', delete=False
-        ) as f:
-            f.write(yaml_str)
-            tmp_path = f.name
-
-        try:
-            from backtest import walk_forward
-            bt = walk_forward(df, theory, top_k=args.top_k,
-                              test_periods=args.periods, train_window=100,
-                              lottery_code=args.lottery, weight_path=tmp_path)
-            score = composite_score(bt, args.periods)
-        except Exception as e:
-            score = -999
-        finally:
-            Path(tmp_path).unlink(missing_ok=True)
-
-        results.append({'trial': i + 1, 'weights': sample, 'score': score, 'backtest': bt})
-
-        if score > best_score:
-            best_score = score
-            best_sample = sample
-
-        if (i + 1) % 10 == 0:
-            print(f"  进度: {i+1}/{args.trials} | 当前最佳分: {best_score:.1f}")
+    if args.method == 'optuna':
+        results, best_sample = search_optuna(df, theory, args)
+    else:
+        results, best_sample = search_random(df, theory, args)
 
     # ── 排序输出 ──
     results.sort(key=lambda x: x['score'], reverse=True)
@@ -208,19 +273,26 @@ def main():
 
     for rank, r in enumerate(results[:5], 1):
         w = r['weights']
-        bt = r['backtest']
+        bt = r.get('backtest', {})
         sr = bt.get('动态评分', {})
         print(f"\n  #{rank} 综合分: {r['score']:.1f}")
         print(f"     和值={w['和值']} 跨度={w['跨度']} 形态={w['形态']} "
               f"冷热={w['冷热']} 多样性={w['多样性']}")
         print(f"     冷阈值={w['cold_threshold']} 组惩罚={w['group_penalty']} "
               f"跨促进={w['span_spread']} 过热={w['overheat_high']}/{w['overheat_medium']}")
-        print(f"     直选{sr.get('直选命中','?')}/{args.periods} | "
-              f"组选{sr.get('组选命中','?')}/{args.periods} | "
-              f"ROI={sr.get('ROI','?')} | 最长连未={sr.get('最大连续未中','?')}期")
+        if sr:
+            print(f"     直选{sr.get('直选命中','?')}/{args.periods} | "
+                  f"组选{sr.get('组选命中','?')}/{args.periods} | "
+                  f"ROI={sr.get('ROI','?')} | 最长连未={sr.get('最大连续未中','?')}期")
 
     # ── 保存最佳 ──
     if best_sample:
+        # 对最佳权重做一次完整回测（Optuna 模式下补上 backtest 明细）
+        if args.method == 'optuna':
+            _, bt_best = run_one_trial(best_sample, df, theory, args.top_k, args.periods, args.lottery)
+        else:
+            bt_best = results[0].get('backtest', {})
+
         output_dir = BASE_DIR / 'rules'
         best_path = output_dir / f'scoring_weights_{args.lottery}_tuned.yaml'
         best_yaml = build_yaml(best_sample)
@@ -237,7 +309,7 @@ def main():
                 'trial': r['trial'],
                 'score': r['score'],
                 'weights': {k: (float(v) if isinstance(v, (int, float)) else v) for k, v in r['weights'].items()},
-                'backtest_summary': {k: v for k, v in r['backtest'].get('动态评分', {}).items()},
+                'backtest_summary': {k: v for k, v in r.get('backtest', {}).get('动态评分', {}).items()},
             })
         with open(log_path, 'w', encoding='utf-8') as f:
             json.dump(serializable, f, ensure_ascii=False, indent=2)
