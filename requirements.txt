@@ -1,6 +1,8 @@
+# lottery-analysis/requirements.txt
+# 依赖会在 venv (pandas 3.x) 中自动满足
 pandas
 numpy
 pyyaml
 matplotlib
-openpyxl
 requests
+openpyxl
