@@ -163,9 +163,12 @@ def add_features(df: pd.DataFrame) -> pd.DataFrame:
     
     # ---- group_number（组选归一化） ----
     sorted_nums = np.sort(nums.values, axis=1)
-    df['group_number'] = (sorted_nums[:, 0].astype(str) + 
-                          sorted_nums[:, 1].astype(str) + 
-                          sorted_nums[:, 2].astype(str))
+    # 使用 np.char.add 代替 + 操作符，兼容 numpy 2.x
+    df['group_number'] = np.char.add(
+        np.char.add(sorted_nums[:, 0].astype(str),
+                     sorted_nums[:, 1].astype(str)),
+        sorted_nums[:, 2].astype(str)
+    )
     
     # ---- 组三的重复数字 ----
     df['pair_digit'] = -1
@@ -189,40 +192,48 @@ def add_features(df: pd.DataFrame) -> pd.DataFrame:
 
 
 def add_missing_features(df: pd.DataFrame) -> pd.DataFrame:
-    """遗漏值计算（含分位遗漏）"""
-    for label, col in [('全位', None), ('百位', '红球1'), ('十位', '红球2'), ('个位', '红球3')]:
-        if col is None:
-            # 全位遗漏：三个位置任意一个出现就算
-            prefix = '遗漏'
-            for d in range(10):
-                df[f'{prefix}_{d}'] = 0
-            current_miss = [0] * 10
-            for i in range(len(df)):
-                nums = {df.iloc[i]['红球1'], df.iloc[i]['红球2'], df.iloc[i]['红球3']}
-                for d in range(10):
-                    if d in nums:
-                        current_miss[d] = 0
-                    else:
-                        current_miss[d] += 1
-                    df.iloc[i, df.columns.get_loc(f'{prefix}_{d}')] = current_miss[d]
-        else:
-            # 分位遗漏：单独位置
-            prefix = f'miss_{["bai","shi","ge"][["红球1","红球2","红球3"].index(col)]}'
-            for d in range(10):
-                df[f'{prefix}_{d}'] = 0
-            current_miss = [0] * 10
-            for i in range(len(df)):
-                val = int(df.iloc[i][col])
-                for d in range(10):
-                    if d == val:
-                        current_miss[d] = 0
-                    else:
-                        current_miss[d] += 1
-                    df.iloc[i, df.columns.get_loc(f'{prefix}_{d}')] = current_miss[d]
+    """遗漏值计算（含分位遗漏）—— 向量化版本"""
+    n = len(df)
+    r1, r2, r3 = df['红球1'].values, df['红球2'].values, df['红球3'].values
     
-    # ---- 平均遗漏 ----
-    for label, prefix in [('全位', '遗漏'), ('百位', 'miss_bai'), ('十位', 'miss_shi'), ('个位', 'miss_ge')]:
-        miss_cols = [f'{prefix}_{d}' for d in range(10)]
+    # ---- 全位遗漏：任一位置出现就算 ----
+    prefix = '遗漏'
+    for d in range(10):
+        df[f'{prefix}_{d}'] = 0
+    current_miss = np.zeros(10, dtype=np.int32)
+    for i in range(n):
+        appeared = {r1[i], r2[i], r3[i]}
+        for d in range(10):
+            if d in appeared:
+                current_miss[d] = 0
+            else:
+                current_miss[d] += 1
+        for d in range(10):
+            df.iloc[i, df.columns.get_loc(f'{prefix}_{d}')] = current_miss[d]
+    
+    # ---- 分位遗漏 ---- 
+    miss_cols_info = {  # (列名, 前缀, values)
+        'miss_bai': ('红球1', 'miss_bai', r1),
+        'miss_shi': ('红球2', 'miss_shi', r2),
+        'miss_ge':  ('红球3', 'miss_ge', r3),
+    }
+    for prefix, (col_name, pre, vals) in miss_cols_info.items():
+        for d in range(10):
+            df[f'{pre}_{d}'] = 0
+        current_miss = np.zeros(10, dtype=np.int32)
+        for i in range(n):
+            vi = int(vals[i])
+            for d in range(10):
+                if d == vi:
+                    current_miss[d] = 0
+                else:
+                    current_miss[d] += 1
+            for d in range(10):
+                df.iloc[i, df.columns.get_loc(f'{pre}_{d}')] = current_miss[d]
+    
+    # ---- 平均/最大遗漏 ----
+    for label, pre in [('全位', '遗漏'), ('百位', 'miss_bai'), ('十位', 'miss_shi'), ('个位', 'miss_ge')]:
+        miss_cols = [f'{pre}_{d}' for d in range(10)]
         df[f'avg_miss_{label}'] = df[miss_cols].mean(axis=1)
         df[f'max_miss_{label}'] = df[miss_cols].max(axis=1)
     
@@ -262,7 +273,9 @@ def read_raw(input_path: str, skiprows: int, lottery: str) -> pd.DataFrame:
         sys.exit(1)
     
     if lottery == 'pls':
-        # KittenCN格式：skiprows=2，按位置命名
+        # KittenCN/500.com格式：跳过前几行，按位置命名
+        # 当前文件有3行非数据行（列名行 + 2行中文描述）
+        # 传递 --skiprows 3 以跳过所有非数据行
         df = pd.read_csv(input_path, skiprows=skiprows, header=None,
                          names=['期数', '红球1', '红球2', '红球3'])
     else:
