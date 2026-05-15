@@ -18,6 +18,11 @@ output/*
 !output/predictions/*.json
 !output/predictions/latest_*.json
 
+!output/reviews/
+!output/reviews/*.csv
+!output/tuning/
+!output/tuning/*.json
+
 logs/*
 !logs/.gitkeep
 
