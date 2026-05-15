@@ -475,6 +475,8 @@ def main():
                         help='包含豹子（默认排除）')
     parser.add_argument('--target-issue', type=int,
                         help='手动指定预测期号（默认=数据截至期号+1）')
+    parser.add_argument('--output-name', default='',
+                        help='输出文件名前缀（用于多策略并行，如 conservative/diversity）')
     args = parser.parse_args()
 
     base_dir = Path(__file__).resolve().parent.parent
@@ -586,9 +588,10 @@ def main():
     # 保存 JSON（按期号）
     output_dir = base_dir / 'output' / 'predictions'
     output_dir.mkdir(parents=True, exist_ok=True)
-    output_path = output_dir / '{}_predict_{}.json'.format(args.lottery, target_issue)
+    prefix = '{}_{}'.format(args.lottery, args.output_name) if args.output_name else args.lottery
+    output_path = output_dir / '{}_predict_{}.json'.format(prefix, target_issue)
     # 同时保存 latest 固定入口
-    latest_path = output_dir / 'latest_{}.json'.format(args.lottery)
+    latest_path = output_dir / 'latest_{}.json'.format(prefix)
 
     # 过滤说明
     filter_desc = {

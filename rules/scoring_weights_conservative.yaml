@@ -1,0 +1,24 @@
+# 稳健策略权重（偏理论分布，少追热点）
+weights:
+  和值: 20
+  跨度: 18
+  形态: 14
+  奇偶: 8
+  大小: 8
+  012路: 6
+  冷热: 6
+  遗漏: 5
+  组三六偏向: 8
+  多样性: 12
+
+hot_cold:
+  cold_threshold: 8
+  hot_threshold: 3
+
+diversity:
+  group_penalty: 8
+  span_spread: 10
+
+overheat_decay:
+  high: 0.5
+  medium: 0.7

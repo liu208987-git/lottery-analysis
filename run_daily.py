@@ -71,7 +71,7 @@ def ensure_seed_data(lottery):
         logger.info(f"已从归档数据初始化: {raw_file}")
 
 
-def pipeline(lottery, label, skiprows=0, top_k=30, exclude_recent=5):
+def pipeline(lottery, label, skiprows=0, top_k=30, exclude_recent=5, strategy='default'):
     """单个彩种的完整流水线，任一步骤失败则停止"""
     ensure_seed_data(lottery)
     raw_file = f"data/raw/{lottery}_raw.csv"
@@ -103,14 +103,27 @@ def pipeline(lottery, label, skiprows=0, top_k=30, exclude_recent=5):
     ):
         return
 
-    # 4. 评分预测
-    if not run_cmd(
-        [py, "scripts/scoring_engine.py", "--lottery", lottery,
-         "--top-k", str(top_k), "--exclude-recent", str(exclude_recent)],
-        f"{label} 评分预测 (top-k={top_k}, exclude={exclude_recent})",
-        timeout=120,
-    ):
-        return
+    # 4. 评分预测（支持多策略）
+    strategy_configs = {
+        'default':      {'weights': None,                    'name': ''},
+        'conservative': {'weights': 'rules/scoring_weights_conservative.yaml', 'name': 'conservative'},
+        'diversity':    {'weights': 'rules/scoring_weights_diversity.yaml',    'name': 'diversity'},
+    }
+
+    strategies = [strategy] if strategy != 'all' else ['default', 'conservative', 'diversity']
+
+    for st in strategies:
+        cfg = strategy_configs[st]
+        score_cmd = [py, "scripts/scoring_engine.py", "--lottery", lottery,
+                     "--top-k", str(top_k), "--exclude-recent", str(exclude_recent)]
+        if cfg['weights']:
+            score_cmd.extend(["--weights", cfg['weights']])
+        if cfg['name']:
+            score_cmd.extend(["--output-name", cfg['name']])
+        desc = f"{label} 评分预测 [{st}] (top-k={top_k})"
+        if not run_cmd(score_cmd, desc, timeout=120):
+            if strategy != 'all':
+                return
 
     # 5. 可视化（可选依赖，失败不影响预测）
     charts_dir = BASE / 'output' / 'charts'
@@ -134,12 +147,16 @@ def main():
                         help='推荐注数（默认30）')
     parser.add_argument('--exclude-recent', type=int, default=5,
                         help='排除近N期已出号码（默认5）')
+    parser.add_argument('--strategy', choices=['default', 'conservative', 'diversity', 'all'],
+                        default='default',
+                        help='评分策略：default/conservative/diversity/all（默认default）')
     args = parser.parse_args()
 
     today = datetime.now().strftime('%Y-%m-%d %H:%M')
     logger.info(f"{'='*50}")
     logger.info(f"  彩票分析每日任务  {today}")
-    logger.info(f"  Top-K: {args.top_k} | 排除近{args.exclude_recent}期")
+    s_display = '全部三套' if args.strategy == 'all' else args.strategy
+    logger.info(f"  策略: {s_display} | Top-K: {args.top_k} | 排除近{args.exclude_recent}期")
     logger.info(f"{'='*50}")
 
     lotteries = {
@@ -152,7 +169,8 @@ def main():
             label, skip = lotteries[key]
             logger.info(f"")
             logger.info(f"── {label} ──")
-            pipeline(key, label, skip, top_k=args.top_k, exclude_recent=args.exclude_recent)
+            pipeline(key, label, skip, top_k=args.top_k,
+                     exclude_recent=args.exclude_recent, strategy=args.strategy)
 
     logger.info(f"")
     logger.info(f"{'='*50}")

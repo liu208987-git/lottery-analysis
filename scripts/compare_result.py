@@ -188,6 +188,44 @@ def print_report(report):
     print(f"{'='*55}\n")
 
 
+def append_to_history(report, lottery):
+    """将本期复盘追加到长期复盘总表"""
+    history_dir = BASE_DIR / 'output' / 'reviews'
+    history_dir.mkdir(parents=True, exist_ok=True)
+    history_path = history_dir / 'review_history.csv'
+
+    top1 = report['逐注对比'][0] if report['逐注对比'] else {}
+    now = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+
+    row = {
+        '彩种': report['彩种'],
+        '期号': str(report['实际期号']),
+        '开奖号码': report['开奖号码'],
+        '预测Top1': top1.get('预测号码', ''),
+        '直选命中Top30': report['命中情况']['直选命中'],
+        '组选命中Top30': report['命中情况']['组选命中'],
+        'Top1和值误差': top1.get('和值差', ''),
+        'Top1跨度误差': top1.get('跨度差', ''),
+        'Top1形态一致': top1.get('形态一致', ''),
+        '复盘时间': now,
+    }
+
+    columns = list(row.keys())
+    new_df = pd.DataFrame([row])
+
+    if history_path.exists():
+        old_df = pd.read_csv(history_path, dtype=str, encoding='utf-8-sig')
+        # 同期号同彩种只保留最新
+        merged = pd.concat([old_df, new_df], ignore_index=True)
+        merged = merged.drop_duplicates(subset=['彩种', '期号'], keep='last')
+        merged = merged[columns]
+    else:
+        merged = new_df
+
+    merged.to_csv(history_path, index=False, encoding='utf-8-sig')
+    print(f"  📊 复盘总表: {history_path} (累计 {len(merged)} 条)")
+
+
 def main():
     parser = argparse.ArgumentParser(description='预测 vs 开奖对比')
     parser.add_argument('--lottery', required=True, choices=['pls', 'd3'],
@@ -209,6 +247,9 @@ def main():
     with open(output_path, 'w', encoding='utf-8') as f:
         json.dump(report, f, ensure_ascii=False, indent=2)
     print(f"  💾 对比报告: {output_path}")
+
+    # 追加到长期复盘总表
+    append_to_history(report, args.lottery)
 
 
 if __name__ == '__main__':
