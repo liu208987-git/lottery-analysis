@@ -18,9 +18,10 @@ python scripts/data_fetcher.py --all
 #     如果 d3 未获取到数据，参考下方「福彩3D数据说明」
 
 # 3. 完整预测流程（排列三）
-# 模式 A：data_fetcher.py 生成的标准 CSV（推荐）
-#   data_fetcher 输出的 CSV 有 3 行非数据头（列名+2行中文说明）
-#   需用 --skiprows 3 跳过
+# 先确认 pls_raw.csv 的表头行数，再选择合适的参数：
+#   head -10 data/raw/pls_raw.csv
+#
+# 当前 data_fetcher 生成的 CSV 含 3 行非数据头（列名+2行中文说明）：
 python scripts/data_fetcher.py --lottery pls
 python scripts/feature_engine.py \
   --input data/raw/pls_raw.csv \
@@ -28,15 +29,8 @@ python scripts/feature_engine.py \
   --lottery pls \
   --skiprows 3 \
   --force
-
-# 模式 B：旧版 KittenCN / 500.com 双表头 CSV
-#   如果有独立的两行中文表头，用 --skiprows 2
-# python scripts/feature_engine.py \
-#   --input data/raw/pls_kitten.csv \
-#   --output data/processed/pls_feat.csv \
-#   --lottery pls \
-#   --skiprows 2 \
-#   --force
+# 如果 CSV 只有 2 行中文说明，改用 --skiprows 2
+# 如果 CSV 是标准三列格式（期号,日期,号码），不加 --skiprows
 
 python scripts/stats_engine.py --lottery pls
 python scripts/scoring_engine.py --lottery pls --top-k 30
@@ -158,7 +152,13 @@ lottery-analysis/
 | 福彩3D | 每日 21:15 |
 
 ### 排列三数据说明
-原始数据有2行表头，`feature_engine.py` 需加 `--skiprows 2`。
+当前 CSV 包含 3 行非数据头（列名 + 2 行中文说明），
+`feature_engine.py` 需加 `--skiprows 3`。
+
+如果使用其他来源的数据，先用 `head -10 data/raw/pls_raw.csv` 确认格式：
+- 标准三列 CSV（`期号,日期,号码`）：不加 `--skiprows`
+- 2 行中文说明：加 `--skiprows 2`
+- 3 行非数据头（当前）：加 `--skiprows 3`
 
 ## 回测
 
@@ -189,6 +189,24 @@ python scripts/visualize.py --lottery pls --chart all --output-format html
 - **PNG 静态图**：走势图、遗漏图、热力图 → `output/charts/`
 - **HTML 交互图**：走势图、热力图、Top50推荐分布（支持悬停/缩放）→ `output/charts/`
 - plotly 为可选依赖，未安装则自动跳过 HTML 输出
+
+## 自动化读取最新预测结果
+
+预测结果同步保存为固定路径，方便脚本/Hermes/GPT自动读取：
+
+```
+output/predictions/latest_pls.json      # 排列三最新预测（固定入口）
+output/predictions/latest_d3.json       # 福彩3D最新预测（固定入口）
+output/predictions/pls_predict_26125.json   # 按期号命名的历史记录
+output/predictions/d3_predict_2026125.json  # 同上
+```
+
+### GPT/Grok 直接读取 URL
+
+```
+https://raw.githubusercontent.com/liu208987-git/lottery-analysis/main/output/predictions/pls_predict_{期号}.json
+https://raw.githubusercontent.com/liu208987-git/lottery-analysis/main/output/predictions/d3_predict_{期号}.json
+```
 
 ## 每日推荐流程
 

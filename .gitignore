@@ -12,6 +12,7 @@ output/*
 !output/*/
 !output/**/.gitkeep
 !output/predictions/*.json
+!output/predictions/latest_*.json
 
 logs/*
 !logs/.gitkeep

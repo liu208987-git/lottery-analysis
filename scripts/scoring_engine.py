@@ -417,7 +417,7 @@ def generate_predictions(all_df, stats, theory, weights, params,
 
 
 def _add_reason(rank, c, exclude_recent, exclude_mode, include_baozi):
-    """为推荐号码生成机器理由 + 展示理由"""
+    """为推荐号码生成机器理由 + 展示理由 + 一句话说明"""
     details = c['评分明细']
     top_reasons = []
     # 找得分最高的3个维度
@@ -431,16 +431,38 @@ def _add_reason(rank, c, exclude_recent, exclude_mode, include_baozi):
     dim_text = ' '.join(top_reasons)
     display = f"第{rank}名 | {c['号码']} ({c['形态']}) | 总分{total} | {dim_text}"
 
+    # 一句话说明（适合自然语言推送）
+    one_line = (
+        f"和值{c['和值']}、跨度{c['跨度']}，"
+        f"形态为{c['形态']}，"
+        f"{' '.join(d.split('=')[0] for d in top_reasons[:2])} 得分较高。"
+    )
+
     return {
         '排名': rank,
         **{k: c[k] for k in ['号码', 'group_number', '和值', '跨度', '形态', '总分']},
         '推荐理由': ' '.join(top_reasons),
         '展示理由': display,
+        '一句话说明': one_line,
         '评分明细': details,
     }
 
 
-def get_git_commit(base_dir):
+def to_rel(path_str, base_dir):
+    """将绝对路径转为相对项目根的路径（JSON 更可移植）"""
+    try:
+        p = Path(path_str).resolve()
+        if base_dir in p.parents or p == base_dir:
+            return str(p.relative_to(base_dir))
+        # 如果 path_str 本身已经是相对路径
+        if not Path(path_str).is_absolute():
+            return str(path_str)
+        return str(p)
+    except Exception:
+        return str(path_str)
+
+
+def get_git_commit(base_dir=None):
     """获取当前git commit hash（失败返回 None）"""
     try:
         result = subprocess.run(
@@ -551,48 +573,52 @@ def main():
             '跨度分布': {str(k): v for k, v in sorted(span_in_top.items())},
             '组选数量': group_count,
             '形态分布': morph_in_top,
-            '高分组(≥60)': high_group_count,
+            '高分阈值': 60,
+            '高分候选数': high_group_count,
             '候选总数': candidates,
+            'Top10号码': [c['号码'] for c in top_k[:10]],
+            'Top30号码': [c['号码'] for c in top_k[:30]],
         }
 
         print(f"\n  📊 摘要:")
         print(f"    总分最高: {summary['总分最高']} | 最低: {summary['总分最低']} | 平均: {summary['平均分']}")
         print(f"    跨度分布: {summary['跨度分布']}")
-        print(f"    组选数: {summary['组选数量']} | 高分组(≥60): {summary['高分组(≥60)']} | 候选: {summary['候选总数']}")
+        print(f"    组选数: {summary['组选数量']} | 高分组(≥60): {summary['高分候选数']} | 候选: {summary['候选总数']}")
+        print(f"    Top10: {' '.join(summary['Top10号码'][:5])}...")
 
     # 风险提示
     risk_note = ("⚠️ 彩票开奖具有高度随机性，本评分仅基于历史统计和理论分布，"
                  "不代表未来开奖结果。请理性看待，量力而行。")
     print(f"\n  ⚠️  {risk_note}")
 
-    # 生成信息
-    git_commit = get_git_commit(base_dir)
+    # 生成信息（相对路径）
+    git_commit = get_git_commit()
     gen_info = {
-        '命令': f"python scripts/scoring_engine.py --lottery {args.lottery} --top-k {args.top_k} --exclude-recent {args.exclude_recent} --exclude-mode {args.exclude_mode}" + (" --include-baozi" if args.include_baozi else ""),
-        '权重文件': str(Path(args.weights).resolve() if args.weights else base_dir / 'rules' / 'scoring_weights.yaml'),
-        '统计缓存': str(stats_path),
-        '数据文件': str(feat_path),
+        '命令': 'python scripts/scoring_engine.py --lottery {} --top-k {} --exclude-recent {} --exclude-mode {}{}'.format(
+            args.lottery, args.top_k, args.exclude_recent, args.exclude_mode,
+            ' --include-baozi' if args.include_baozi else ''),
+        '权重文件': to_rel(Path(args.weights).resolve() if args.weights else base_dir / 'rules' / 'scoring_weights.yaml', base_dir),
+        '统计缓存': to_rel(stats_path, base_dir),
+        '数据文件': to_rel(feat_path, base_dir),
     }
     if git_commit:
-        gen_info['git commit'] = git_commit
+        gen_info['代码版本'] = git_commit
+    else:
+        gen_info['代码版本'] = None
 
-    # 过滤说明（对象格式）
+    # 保存 JSON（按期号）
+    output_dir = base_dir / 'output' / 'predictions'
+    output_dir.mkdir(parents=True, exist_ok=True)
+    output_path = output_dir / '{}_predict_{}.json'.format(args.lottery, target_issue)
+    # 同时保存 latest 固定入口
+    latest_path = output_dir / 'latest_{}.json'.format(args.lottery)
+
+    # 过滤说明
     filter_desc = {
         '排除近N期': args.exclude_recent,
         '是否排除豹子': not args.include_baozi,
         '排除模式': args.exclude_mode,
     }
-
-    # 保存 JSON
-    output_dir = base_dir / 'output' / 'predictions'
-    output_dir.mkdir(parents=True, exist_ok=True)
-    output_path = output_dir / f'{args.lottery}_predict_{target_issue}.json'
-
-    # 修正 gen_info 字段名为 代码版本
-    if git_commit:
-        gen_info['代码版本'] = gen_info.pop('git commit', '')
-    else:
-        gen_info['代码版本'] = None
 
     output_json = {
         '彩种': lottery_name,
@@ -611,7 +637,10 @@ def main():
 
     with open(output_path, 'w', encoding='utf-8') as f:
         json.dump(output_json, f, ensure_ascii=False, indent=2)
-    print(f"\n  💾 保存: {output_path}")
+    with open(latest_path, 'w', encoding='utf-8') as f:
+        json.dump(output_json, f, ensure_ascii=False, indent=2)
+    print(f"  💾 保存: {output_path}")
+    print(f"  💾 同步: {latest_path}")
     print(f"{'='*60}\n")
 
 
