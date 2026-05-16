@@ -1,4 +1,4 @@
-#!/usr/bin/env python3
+﻿#!/usr/bin/env python3
 """
 回测系统 v2 —— walk-forward + 基准对比
 =======================================
@@ -248,6 +248,9 @@ def walk_forward(df: pd.DataFrame, theory: dict, top_k: int = 30,
         total_prize = direct_prize + group_prize
         roi = (total_prize - total_cost) / total_cost * 100 if total_cost > 0 else 0
         
+        direct_cost = avg_candidates * 2 * test_periods
+        direct_roi = (direct_prize - direct_cost) / direct_cost * 100 if direct_cost > 0 else 0
+        group_roi = (group_prize - direct_cost) / direct_cost * 100 if direct_cost > 0 else 0
         results[sname] = {
             '直选命中': s['hits_direct'],
             '直选命中率': f"{s['hits_direct']/test_periods*100:.2f}%",
@@ -257,6 +260,9 @@ def walk_forward(df: pd.DataFrame, theory: dict, top_k: int = 30,
             '总投入': f"{total_cost:.0f}元",
             '总回报': f"{total_prize:.0f}元",
             'ROI': f"{roi:.1f}%",
+            '直选ROI': f"${direct_roi:.1f}%",
+            '组选ROI': f"${group_roi:.1f}%",
+            'ROI': f"${roi:.1f}%",
             '最大连续未中': s['max_miss_streak'],
         }
     

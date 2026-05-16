@@ -303,6 +303,11 @@ def save_incremental(df, lottery_type):
     """
     file_path = RAW_DIR / '{}_raw.csv'.format(lottery_type)
 
+    # 空数据保护：不覆盖已有数据
+    if df is None or len(df) == 0:
+        logger.warning("⚠️ {} 新数据为空，保留旧数据，不覆盖 {}".format(lottery_type, file_path))
+        return file_path if file_path.exists() else None
+
     # 统一列名为简洁3列
     rename_map = {
         '开奖日期': '日期',

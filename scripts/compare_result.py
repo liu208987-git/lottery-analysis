@@ -22,13 +22,14 @@ import pandas as pd
 BASE_DIR = Path(__file__).resolve().parent.parent
 
 
-def load_prediction(lottery, prediction_path=None):
-    """加载预测 JSON"""
+def load_prediction(lottery, prediction_path=None, strategy='default'):
+    """加载预测 JSON，支持多策略文件"""
     if prediction_path:
         p = Path(prediction_path)
         path = p if p.is_absolute() else BASE_DIR / p
     else:
-        path = BASE_DIR / 'output' / 'predictions' / f'latest_{lottery}.json'
+        prefix = f'{lottery}_{strategy}' if strategy != 'default' else lottery
+        path = BASE_DIR / 'output' / 'predictions' / f'latest_{prefix}.json'
 
     if not path.exists():
         print(f"[错误] 预测文件不存在: {path}")
@@ -188,7 +189,7 @@ def print_report(report):
     print(f"{'='*55}\n")
 
 
-def append_to_history(report, lottery):
+def append_to_history(report, lottery, strategy='default'):
     """将本期复盘追加到长期复盘总表"""
     history_dir = BASE_DIR / 'output' / 'reviews'
     history_dir.mkdir(parents=True, exist_ok=True)
@@ -198,6 +199,7 @@ def append_to_history(report, lottery):
     now = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
 
     row = {
+        '策略': strategy,
         '彩种': report['彩种'],
         '期号': str(report['实际期号']),
         '开奖号码': report['开奖号码'],
@@ -231,9 +233,12 @@ def main():
     parser.add_argument('--lottery', required=True, choices=['pls', 'd3'],
                         help='彩种')
     parser.add_argument('--prediction', help='预测JSON路径（默认 latest）')
+    parser.add_argument('--strategy', default='default',
+                        choices=['default', 'conservative', 'diversity'],
+                        help='策略名称（默认default，用于加载对应预测文件）')
     args = parser.parse_args()
 
-    pred_json = load_prediction(args.lottery, args.prediction)
+    pred_json = load_prediction(args.lottery, args.prediction, args.strategy)
     actual = load_latest_draw(args.lottery)
     rows = compare(pred_json.get('推荐', []), actual)
     report = build_report(pred_json, actual, rows)
@@ -243,13 +248,14 @@ def main():
     # 保存报告
     output_dir = BASE_DIR / 'output' / 'reports'
     output_dir.mkdir(parents=True, exist_ok=True)
-    output_path = output_dir / f'{args.lottery}_compare_latest.json'
+    suffix = f'_{args.strategy}' if args.strategy != 'default' else ''
+    output_path = output_dir / f'{args.lottery}_compare{suffix}_latest.json'
     with open(output_path, 'w', encoding='utf-8') as f:
         json.dump(report, f, ensure_ascii=False, indent=2)
     print(f"  💾 对比报告: {output_path}")
 
     # 追加到长期复盘总表
-    append_to_history(report, args.lottery)
+    append_to_history(report, args.lottery, args.strategy)
 
 
 if __name__ == '__main__':
