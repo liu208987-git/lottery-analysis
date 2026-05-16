@@ -20,8 +20,17 @@ output/*
 
 !output/reviews/
 !output/reviews/*.csv
+!output/reports/
+!output/reports/*.json
 !output/tuning/
 !output/tuning/*.json
+
+# 推送运行时数据
+output/push/*.jsonl
+output/push/pending_*.md
+
+# 坏数据隔离区
+data/quarantine/
 
 logs/*
 !logs/.gitkeep

@@ -1,0 +1,57 @@
+{
+  "pls": {
+    "data": {
+      "issue": "26126",
+      "number": "835",
+      "total_rows": 7601
+    },
+    "sources": {
+      "pls_js_lottery": {
+        "failures": 0,
+        "cooldown_until": null,
+        "cooldown_round": 0,
+        "last_status": 200,
+        "last_success": "2026-05-17 02:08:02",
+        "last_failure": null
+      },
+      "pls_sporttery": {
+        "failures": 0,
+        "cooldown_until": null,
+        "cooldown_round": 0,
+        "last_status": null,
+        "last_success": null,
+        "last_failure": null
+      }
+    }
+  },
+  "d3": {
+    "data": {
+      "issue": "2026126",
+      "number": "846",
+      "total_rows": 7633
+    },
+    "sources": {
+      "d3_eastmoney": {
+        "failures": 0,
+        "cooldown_until": null,
+        "cooldown_round": 0,
+        "last_status": 200,
+        "last_success": "2026-05-17 02:08:03",
+        "last_failure": null
+      },
+      "d3_zhcw": {
+        "failures": 0,
+        "cooldown_until": null,
+        "cooldown_round": 0,
+        "last_status": null,
+        "last_success": null,
+        "last_failure": null
+      }
+    }
+  },
+  "quarantine": {
+    "total_files": 0,
+    "recent_files": 0,
+    "recent_details": []
+  }
+}

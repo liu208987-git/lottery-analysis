@@ -3,13 +3,13 @@
 """
 彩票数据获取器 —— 排列三 & 福彩3D
 ===================================
-支持增量更新、日志记录、异常处理。
+多源优先级 + 熔断 + 校验 + 隔离
 
-API 说明：
-- 排列三：体彩官方 API webapi.sporttery.cn（已验证可用）
-- 福彩3D：zhcw.com 静态列表页（pd.read_html 解析，最稳定方案）
+数据源:
+  排列三: js-lottery.com (primary) → sporttery.cn API (backup, 带熔断)
+  福彩3D: eastmoney.com (primary) → zhcw.com (verify, 带熔断)
 
-用法：
+用法:
     python data_fetcher.py --all              # 获取所有彩种
     python data_fetcher.py --lottery pls      # 仅排列三
     python data_fetcher.py --lottery d3       # 仅福彩3D
@@ -17,10 +17,12 @@ API 说明：
 """
 
 import argparse
+import json
 import logging
+import random
 import sys
 import time
-from datetime import datetime
+from datetime import datetime, timedelta
 from io import StringIO
 from pathlib import Path
 
@@ -52,6 +54,9 @@ logger = logging.getLogger(__name__)
 BASE_DIR = Path(__file__).resolve().parent.parent
 RAW_DIR = BASE_DIR / 'data' / 'raw'
 RAW_DIR.mkdir(parents=True, exist_ok=True)
+CACHE_DIR = BASE_DIR / 'data' / 'cache'
+CACHE_DIR.mkdir(parents=True, exist_ok=True)
+QUARANTINE_DIR = BASE_DIR / 'data' / 'quarantine'
 
 HEADERS = {
     'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) '
@@ -77,31 +82,178 @@ def get_source_urls(lottery, role='primary'):
 
 
 # ==========================================
-#  排列三 —— 体彩官方 API ✅ 可用
+#  熔断器
 # ==========================================
 
-def fetch_pls(limit=30, max_retries=3):
-    """从体彩官方API获取排列三最新数据，567限频自动退避重试"""
+class CircuitBreaker:
+    """管理数据源健康状态，连续失败后自动冷却"""
+
+    STATUS_FILE = CACHE_DIR / 'source_status.json'
+
+    def __init__(self):
+        self._status = self._load()
+
+    def _load(self):
+        if self.STATUS_FILE.exists():
+            try:
+                with open(self.STATUS_FILE, 'r', encoding='utf-8') as f:
+                    return json.load(f)
+            except (json.JSONDecodeError, ValueError):
+                logger.warning("source_status.json 损坏，重建")
+        return {}
+
+    def _save(self):
+        with open(self.STATUS_FILE, 'w', encoding='utf-8') as f:
+            json.dump(self._status, f, ensure_ascii=False, indent=2)
+
+    def should_skip(self, source_name, max_failures=3, cooldown_minutes=120):
+        """返回 True 表示应跳过该源（冷却中）"""
+        item = self._status.get(source_name, {})
+        fails = item.get('consecutive_failures', 0)
+        cooldown_str = item.get('cooldown_until')
+
+        # 未达失败阈值 → 不跳过
+        if fails < max_failures:
+            return False
+
+        # 达到阈值但无冷却时间 → 自动设置冷却
+        if not cooldown_str:
+            cooldown_until = datetime.now() + timedelta(minutes=cooldown_minutes)
+            item['cooldown_until'] = cooldown_until.strftime("%Y-%m-%d %H:%M:%S")
+            self._status[source_name] = item
+            self._save()
+            logger.info("🔒 {} 连续失败{}次，冷却 {} 分钟至 {}".format(
+                source_name, fails, cooldown_minutes,
+                cooldown_until.strftime("%H:%M")))
+            return True
+
+        # 检查冷却是否到期
+        try:
+            cooldown_until = datetime.strptime(cooldown_str, "%Y-%m-%d %H:%M:%S")
+            if datetime.now() >= cooldown_until:
+                # 冷却到期，自动重置
+                item['consecutive_failures'] = 0
+                item['cooldown_until'] = None
+                self._status[source_name] = item
+                self._save()
+                logger.info("🔓 {} 冷却到期，恢复使用".format(source_name))
+                return False
+            remaining = (cooldown_until - datetime.now()).total_seconds()
+            logger.info("🔒 {} 冷却中，剩余 {} 分钟".format(source_name, int(remaining / 60)))
+            return True
+        except (ValueError, TypeError):
+            return False
+
+    def record_success(self, source_name):
+        """记录成功，清零所有计数（包括冷却轮次）"""
+        self._status[source_name] = {
+            'consecutive_failures': 0,
+            'cooldown_round': 0,
+            'last_success': datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+            'last_failure': self._status.get(source_name, {}).get('last_failure'),
+            'cooldown_until': None,
+            'last_status': 200,
+        }
+        self._save()
+
+    def _calc_cooldown(self, base_minutes, cooldown_round):
+        """指数冷却：2h→6h→12h→24h(max)"""
+        return min(24 * 60, base_minutes * (2 ** cooldown_round))
+
+    def record_failure(self, source_name, status_code=None, max_failures=3,
+                       cooldown_minutes=120):
+        """记录失败，达阈值时设置冷却（指数递增）"""
+        item = self._status.get(source_name, {})
+        fails = item.get('consecutive_failures', 0) + 1
+        cooldown_round = item.get('cooldown_round', 0)
+        now = datetime.now()
+
+        entry = {
+            'consecutive_failures': fails,
+            'last_failure': now.strftime("%Y-%m-%d %H:%M:%S"),
+            'last_success': item.get('last_success'),
+            'last_status': status_code,
+            'cooldown_until': item.get('cooldown_until'),
+            'cooldown_round': cooldown_round,
+        }
+
+        if fails >= max_failures:
+            entry['cooldown_round'] = cooldown_round + 1
+            actual_cooldown = self._calc_cooldown(cooldown_minutes, cooldown_round)
+            cooldown_until = now + timedelta(minutes=actual_cooldown)
+            entry['cooldown_until'] = cooldown_until.strftime("%Y-%m-%d %H:%M:%S")
+            if cooldown_round > 0:
+                logger.warning("🔒 {} 第{}轮冷却，{} 分钟（指数递增）至 {}".format(
+                    source_name, cooldown_round + 1, actual_cooldown,
+                    cooldown_until.strftime("%H:%M")))
+            else:
+                logger.warning("🔒 {} 连续失败{}次，冷却 {} 分钟至 {}".format(
+                    source_name, fails, actual_cooldown,
+                    cooldown_until.strftime("%H:%M")))
+
+        self._status[source_name] = entry
+        self._save()
+
+    def print_status(self):
+        """打印所有源的状态摘要"""
+        if not self._status:
+            logger.info("📊 无熔断记录")
+            return
+        logger.info("📊 数据源状态:")
+        for name, item in self._status.items():
+            fails = item.get('consecutive_failures', 0)
+            cd = item.get('cooldown_until', '无')
+            rnd = item.get('cooldown_round', 0)
+            last = item.get('last_success') or item.get('last_failure') or '无'
+            if cd and cd != '无':
+                state = '🔒'
+                extra = ' 第{}轮'.format(rnd) if rnd > 1 else ''
+            else:
+                state = '✅'
+                extra = ''
+            logger.info("  {} {} 失败{}次{} 最后:{}".format(state, name, fails, extra, last))
+
+
+# ==========================================
+#  排列三 —— sporttery.cn API (backup)
+# ==========================================
+
+def fetch_pls(limit=30, max_retries=2):
+    """从体彩官方API获取排列三最新数据，567限频退避 + jitter"""
+    # 随机UA轮换降低指纹
+    ua_list = [
+        'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/134.0.0.0 Safari/537.36',
+        'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/133.0.0.0 Safari/537.36',
+        'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/134.0.0.0 Safari/537.36',
+    ]
+    headers = dict(HEADERS)
+    headers['User-Agent'] = random.choice(ua_list)
+
     url = (
         "https://webapi.sporttery.cn/gateway/lottery/"
         f"getHistoryPageListV1.qry?gameNo=350133&provinceId=0"
-        f"&pageSize={min(limit, 50)}&is498=1"
+        f"&pageSize={min(limit, 5)}&is498=1"
     )
+    delays = [30, 90]  # 重试间隔
+
     for attempt in range(max_retries):
         try:
-            r = requests.get(url, headers=HEADERS, timeout=15)
+            r = requests.get(url, headers=headers, timeout=15)
             if r.status_code == 567:
-                wait = 5 * (attempt + 1)
-                logger.warning("排列三API返回567(限频)，{}秒后重试({}/{})".format(
-                    wait, attempt + 1, max_retries))
-                time.sleep(wait)
-                continue
+                if attempt < max_retries - 1:
+                    wait = delays[attempt] + random.randint(3, 20)
+                    logger.warning("排列三API返回567(限频)，{}秒后重试({}/{})".format(
+                        wait, attempt + 1, max_retries))
+                    time.sleep(wait)
+                    continue
+                logger.error("排列三API: {}次重试后仍567".format(max_retries))
+                return []
             r.raise_for_status()
             data = r.json()
             break
         except requests.exceptions.RequestException as e:
             if attempt < max_retries - 1:
-                time.sleep(3)
+                time.sleep(delays[attempt])
                 continue
             logger.error("排列三API请求失败: {}".format(e))
             return []
@@ -116,7 +268,8 @@ def fetch_pls(limit=30, max_retries=3):
     for item in data.get('value', {}).get('list', []):
         nums = item['lotteryDrawResult'].split()
         if len(nums) < 3:
-            logger.warning("排列三: 期号{} 号码格式异常: {}".format(item['lotteryDrawNum'], item['lotteryDrawResult']))
+            logger.warning("排列三: 期号{} 号码格式异常: {}".format(
+                item['lotteryDrawNum'], item['lotteryDrawResult']))
             continue
         results.append({
             '期号': item['lotteryDrawNum'],
@@ -124,48 +277,124 @@ def fetch_pls(limit=30, max_retries=3):
             '号码': ''.join(nums[:3]),
         })
     if results:
-        logger.info("排列三: 获取到 {} 条 (最新: {})".format(len(results), results[0]['期号']))
+        logger.info("排列三(sporttery): 获取到 {} 条 (最新: {})".format(
+            len(results), results[0]['期号']))
     else:
-        logger.warning("排列三: 无数据")
+        logger.warning("排列三(sporttery): 无数据")
     return results
 
 
 # ==========================================
-#  福彩3D —— zhcw.com 静态列表页 ✅ 最稳定方案
+#  排列三 —— js-lottery.com (primary)
+# ==========================================
+
+def fetch_pls_from_js_lottery(limit=30):
+    """从江苏体彩网抓取排列三历史数据"""
+    url = "https://www.js-lottery.com/wfzq/p3p5/p3data"
+    logger.info("排列三(js-lottery): 开始抓取...")
+
+    try:
+        resp = requests.get(url, headers=HEADERS, timeout=20)
+        resp.encoding = 'utf-8'
+        if resp.status_code != 200:
+            logger.error("排列三(js-lottery): HTTP {}".format(resp.status_code))
+            return []
+    except requests.exceptions.RequestException as e:
+        logger.error("排列三(js-lottery): 请求失败 {}".format(e))
+        return []
+
+    # 用 pd.read_html 解析
+    try:
+        dfs = pd.read_html(StringIO(resp.text))
+    except (ValueError, ImportError) as e:
+        logger.error("排列三(js-lottery): HTML解析失败 {}".format(e))
+        # fallback: 简单正则
+        return _parse_pls_js_lottery_fallback(resp.text, limit)
+
+    for df in dfs:
+        cols = [str(c).strip() for c in df.columns]
+        # 弹性匹配列名
+        issue_col = next((c for c in cols if '期号' in c), None)
+        num_col = next((c for c in cols if '开奖号码' in c or '号码' in c or '奖号' in c), None)
+        date_col = next((c for c in cols if '日期' in c or '发布' in c), None)
+
+        if issue_col and num_col:
+            results = []
+            for _, row in df.iterrows():
+                issue = str(row[issue_col]).strip()
+                number = str(row[num_col]).strip().replace(' ', '')
+                # 期号校验：5位纯数字
+                if not issue.isdigit() or len(issue) != 5:
+                    continue
+                # 号码校验：3位数字
+                if not number.isdigit() or len(number) < 3:
+                    number = ''.join(c for c in number if c.isdigit())[:3]
+                if len(number) != 3:
+                    continue
+                date_val = str(row[date_col]).strip() if date_col else ''
+                results.append({
+                    '期号': issue,
+                    '日期': date_val,
+                    '号码': number,
+                })
+                if len(results) >= limit:
+                    break
+
+            if results:
+                logger.info("排列三(js-lottery): 获取到 {} 条 (最新: {})".format(
+                    len(results), results[0]['期号']))
+                return results
+
+    # pd.read_html 没找到 → fallback
+    return _parse_pls_js_lottery_fallback(resp.text, limit)
+
+
+def _parse_pls_js_lottery_fallback(html, limit):
+    """js-lottery 备用解析：正则提取"""
+    import re
+    # 匹配表格行：日期 | 期号 | 号码
+    rows = re.findall(r'<tr[^>]*>.*?(\d{4}-\d{2}-\d{2}).*?(\d{5}).*?(\d\s*\d\s*\d).*?</tr>',
+                      html, re.DOTALL)
+    results = []
+    for date_str, issue, number in rows:
+        num = number.replace(' ', '')
+        if len(num) == 3 and num.isdigit():
+            results.append({'期号': issue, '日期': date_str, '号码': num})
+            if len(results) >= limit:
+                break
+    if results:
+        logger.info("排列三(js-lottery fallback): 解析到 {} 条".format(len(results)))
+    else:
+        logger.warning("排列三(js-lottery fallback): 未解析到数据")
+    return results
+
+
+# ==========================================
+#  福彩3D —— zhcw.com (verify)
 # ==========================================
 
 def fetch_3d_from_zhcw(max_pages=10):
     """
     从中国福彩网(zhcw.com)抓取福彩3D历史数据
 
-    使用 pd.read_html 解析静态表格，第1页返回404（最新数据从第2页开始），
-    每页约21条记录。
-
-    Args:
-        max_pages: 抓取页数（默认10页≈189条）
-
-    Returns:
-        pd.DataFrame | None: 列 [期号, 开奖日期, 开奖号码]
+    使用 pd.read_html 解析静态表格。
     """
     all_dfs = []
-    logger.info("开始抓取福彩3D数据，最多 {} 页...".format(max_pages))
+    logger.info("福彩3D(zhcw): 最多 {} 页...".format(max_pages))
 
     for page in range(1, max_pages + 1):
-        # zhcw HTTPS返回假200（内容实际为404页面），必须用HTTP
         url = "http://kaijiang.zhcw.com/zhcw/html/3d/list_{}.html".format(page)
         try:
             resp = requests.get(url, headers=HEADERS, timeout=15)
             resp.encoding = 'utf-8'
 
             if resp.status_code != 200:
-                # 第1页通常是404（zhcw的列表页从第2页开始有效）
                 continue
 
             dfs = pd.read_html(StringIO(resp.text))
             found = False
             for df in dfs:
                 cols = df.columns
-                # MultiIndex 列名，检查任一 level 含"期号"
                 col_strs = []
                 if hasattr(cols, 'levels'):
                     for level in cols.levels:
@@ -174,77 +403,62 @@ def fetch_3d_from_zhcw(max_pages=10):
                     col_strs = [str(c) for c in cols]
 
                 if any('期号' in s for s in col_strs):
-                    # zhcw 表格结构：前3列 = 开奖日期, 期号, 中奖号码
                     df = df.iloc[:, :3].copy()
-                    # MultiIndex → 普通列名
                     df.columns = ['开奖日期', '期号', '中奖号码']
-                    # 号码去空格："4 8 2" → "482"
                     df['中奖号码'] = df['中奖号码'].astype(str).str.replace(' ', '').str.zfill(3)
-                    # 过滤无效行（表头行会被pd.read_html误读为数据）
                     df = df[df['期号'].astype(str).str.match(r'^\d{6,7}$')]
                     if len(df) > 0:
                         all_dfs.append(df)
-                        logger.info("第 {} 页抓取成功 -> {} 条".format(page, len(df)))
+                        logger.info("福彩3D(zhcw): 第 {} 页 -> {} 条".format(page, len(df)))
                     found = True
                     break
 
             if not found:
-                logger.debug("第 {} 页: 未找到开奖表格".format(page))
+                logger.debug("福彩3D(zhcw): 第 {} 页未找到表格".format(page))
 
         except (requests.exceptions.RequestException, ValueError) as e:
-            logger.debug("第 {} 页失败: {}".format(page, e))
+            logger.debug("福彩3D(zhcw): 第 {} 页失败 {}".format(page, e))
 
         time.sleep(1.5)
 
     if not all_dfs:
-        logger.error("福彩3D: 所有页面抓取失败")
+        logger.error("福彩3D(zhcw): 所有页面抓取失败")
         return None
 
     final_df = pd.concat(all_dfs, ignore_index=True)
-    final_df = final_df.drop_duplicates(subset=['期号']).sort_values(by='期号', ascending=False).reset_index(drop=True)
+    final_df = final_df.drop_duplicates(subset=['期号']).sort_values(
+        by='期号', ascending=False).reset_index(drop=True)
 
-    logger.info("✅ 福彩3D 抓取完成，共 {} 条记录 ({} ~ {})".format(
+    logger.info("福彩3D(zhcw): 共 {} 条 ({} ~ {})".format(
         len(final_df), final_df['期号'].iloc[-1], final_df['期号'].iloc[0]))
     return final_df
 
 
 # ==========================================
-#  福彩3D —— 东方财富 (eastmoney.com) ✅ 备用源
+#  福彩3D —— 东方财富 (primary)
 # ==========================================
 
 def fetch_3d_from_eastmoney(max_pages=1):
-    """
-    从东方财富彩票页抓取福彩3D历史数据。
-
-    页面含 HTML 表格，每页约50条记录。号码通过 <span class='pellet'> 标签展示。
-
-    Args:
-        max_pages: 抓取页数（默认1页≈50条）
-
-    Returns:
-        pd.DataFrame | None: 列 [期号, 开奖日期, 中奖号码]
-    """
+    """从东方财富彩票页抓取福彩3D历史数据"""
     import re
 
     all_rows = []
-    logger.info("开始抓取东方财富福彩3D数据...")
+    logger.info("福彩3D(eastmoney): 开始抓取...")
 
     for page in range(1, max_pages + 1):
         url = "https://caipiao.eastmoney.com/Result/History/fc3d?page={}".format(page)
         try:
-            resp = requests.get(url, headers=HEADERS, timeout=15)
+            resp = requests.get(url, headers=HEADERS, timeout=20)
             resp.encoding = 'utf-8'
             if resp.status_code != 200:
-                logger.warning("东方财富第 {} 页返回 {}".format(page, resp.status_code))
+                logger.warning("福彩3D(eastmoney): 第 {} 页 HTTP {}".format(page, resp.status_code))
                 continue
 
             html = resp.text
             before_count = len(all_rows)
 
-            # 提取行：包含 pellet 的 tr 块
             rows = re.findall(r'<tr>\s*<td>.*?</tr>', html, re.DOTALL)
             if not rows:
-                # fallback: 直接匹配 pellet 所在的行块
                 blocks = re.findall(
                     r'<a[^>]*id=(\d{7})[^>]*>.*?'
                     r'(20\d{2}-\d{2}-\d{2}).*?'
@@ -272,52 +486,177 @@ def fetch_3d_from_eastmoney(max_pages=1):
                             '中奖号码': ''.join(digits[:3]),
                         })
 
-            logger.info("东方财富第 {} 页抓取成功 -> {} 条".format(page, len(all_rows) - before_count))
+            logger.info("福彩3D(eastmoney): 第 {} 页 -> {} 条".format(
+                page, len(all_rows) - before_count))
 
         except (requests.exceptions.RequestException, ValueError) as e:
-            logger.debug("东方财富第 {} 页失败: {}".format(page, e))
+            logger.debug("福彩3D(eastmoney): 第 {} 页失败 {}".format(page, e))
 
     if not all_rows:
-        logger.error("东方财富: 所有页面抓取失败")
+        logger.error("福彩3D(eastmoney): 所有页面抓取失败")
         return None
 
     df = pd.DataFrame(all_rows)
-    df = df.drop_duplicates(subset=['期号']).sort_values(by='期号', ascending=False).reset_index(drop=True)
+    df = df.drop_duplicates(subset=['期号']).sort_values(
+        by='期号', ascending=False).reset_index(drop=True)
 
-    logger.info("✅ 东方财富福彩3D 抓取完成，共 {} 条记录 ({} ~ {})".format(
+    logger.info("福彩3D(eastmoney): 共 {} 条 ({} ~ {})".format(
         len(df), df['期号'].iloc[-1], df['期号'].iloc[0]))
     return df
 
 
 # ==========================================
-#  增量保存（通用格式：期号,日期,号码）
+#  数据校验 & 隔离
+# ==========================================
+
+def _validate_draw_data(df, lottery):
+    """
+    逐行校验数据
+
+    Returns:
+        (valid_df, bad_rows_df)
+        bad_rows_df 含额外列 '验证失败原因'
+    """
+    valid_rows = []
+    bad_rows = []
+
+    for _, row in df.iterrows():
+        errors = []
+        issue = str(row.get('期号', '')).strip()
+        number = str(row.get('号码', row.get('中奖号码', ''))).strip()
+        date_val = str(row.get('日期', row.get('开奖日期', ''))).strip()
+
+        # 1. 期号非空
+        if not issue:
+            errors.append("期号为空")
+        else:
+            expected_len = 5 if lottery == 'pls' else 7
+            if len(issue) != expected_len:
+                errors.append("期号长度不为{}".format(expected_len))
+            if not issue.isdigit():
+                errors.append("期号含非数字")
+
+        # 2. 号码3位数字
+        number = number.replace(' ', '')
+        number = ''.join(c for c in number if c.isdigit())
+        if len(number) != 3:
+            errors.append("号码不是3位数字: '{}'".format(number))
+        else:
+            row['号码'] = number.zfill(3)
+
+        # 3. 日期格式（非空时校验）
+        if date_val and date_val != 'nan':
+            try:
+                datetime.strptime(date_val, "%Y-%m-%d")
+            except ValueError:
+                errors.append("日期格式无效: '{}'".format(date_val))
+
+        if errors:
+            bad_row = row.to_dict()
+            bad_row['验证失败原因'] = '; '.join(errors)
+            bad_rows.append(bad_row)
+        else:
+            valid_rows.append(row.to_dict())
+
+    valid_df = pd.DataFrame(valid_rows) if valid_rows else pd.DataFrame()
+    bad_df = pd.DataFrame(bad_rows) if bad_rows else pd.DataFrame()
+    return valid_df, bad_df
+
+
+def _quarantine_bad_data(bad_df, lottery, reason='数据验证失败'):
+    """校验失败的记录写入隔离区（CSV格式）"""
+    if bad_df is None or len(bad_df) == 0:
+        return
+    QUARANTINE_DIR.mkdir(parents=True, exist_ok=True)
+    ts = datetime.now().strftime("%Y%m%d_%H%M%S")
+    path = QUARANTINE_DIR / '{}_{}_{}.csv'.format(lottery, reason.replace(' ', '_'), ts)
+    bad_df.to_csv(path, index=False, encoding='utf-8-sig')
+    logger.warning("⚠️ {} 条坏数据已隔离 -> {}".format(len(bad_df), path))
+
+
+def _quarantine_source_conflict(lottery, issue, expected_date,
+                                 primary_source, primary_number, primary_date,
+                                 verify_source, verify_number, verify_date,
+                                 reason='source_mismatch'):
+    """双源号码不一致时写入隔离区（JSON格式，含完整上下文）"""
+    QUARANTINE_DIR.mkdir(parents=True, exist_ok=True)
+    ts = datetime.now().strftime("%Y%m%d_%H%M%S")
+    path = QUARANTINE_DIR / '{}_{}_{}.json'.format(lottery, reason, ts)
+
+    record = {
+        'lottery': lottery,
+        'issue': issue,
+        'expected_date': expected_date,
+        'primary': {
+            'source': primary_source,
+            'number': primary_number,
+            'date': primary_date,
+        },
+        'verify': {
+            'source': verify_source,
+            'number': verify_number,
+            'date': verify_date,
+        },
+        'reason': reason,
+        'action': 'not_written_to_raw',
+        'created_at': datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+    }
+    with open(path, 'w', encoding='utf-8') as f:
+        json.dump(record, f, ensure_ascii=False, indent=2)
+    logger.warning("⚠️ 双源冲突已隔离 -> {}".format(path))
+
+
+def _migrate_old_format(df):
+    """检测旧格式(期数,红球_1,红球_2,红球_3)并转换为标准格式(期号,日期,号码)"""
+    if '期数' in df.columns and '红球_1' in df.columns:
+        logger.warning("检测到旧PLS格式(期数+红球)，自动迁移...")
+        df = df.copy()
+        df['期号'] = df['期数'].astype(str)
+        df['号码'] = (
+            df['红球_1'].astype(str).str.zfill(1) +
+            df['红球_2'].astype(str).str.zfill(1) +
+            df['红球_3'].astype(str).str.zfill(1)
+        )
+        df['日期'] = ''
+        # 过滤无效行（期号必须为5位数字）
+        df = df[df['期号'].str.match(r'^\d{5}$')]
+        df = df[['期号', '日期', '号码']]
+        logger.info("迁移完成: {} 条有效".format(len(df)))
+    return df
+
+
+# ==========================================
+#  增量保存（带校验）
 # ==========================================
 
 def save_incremental(df, lottery_type):
     """
-    通用增量保存：合并新旧数据，按期号去重
+    通用增量保存：校验 → 隔离坏数据 → 合并去重
 
     Args:
-        df: pd.DataFrame，需包含列 [期号, 开奖日期(或日期), 中奖号码(或号码)]
+        df: pd.DataFrame
         lottery_type: 'pls' 或 'd3'
     """
     file_path = RAW_DIR / '{}_raw.csv'.format(lottery_type)
 
-    # 空数据保护：不覆盖已有数据
     if df is None or len(df) == 0:
-        logger.warning("⚠️ {} 新数据为空，保留旧数据，不覆盖 {}".format(lottery_type, file_path))
+        logger.warning("⚠️ {} 新数据为空，保留旧数据".format(lottery_type))
         return file_path if file_path.exists() else None
 
-    # 统一列名为简洁3列
+    # 统一列名
     rename_map = {
         '开奖日期': '日期',
         '中奖号码': '号码',
         '号码': '号码',
     }
     df_out = df.rename(columns=rename_map)
+    # 确保有 期号,日期,号码 三列
+    for col in ['期号', '日期', '号码']:
+        if col not in df_out.columns:
+            df_out[col] = ''
     df_out = df_out[['期号', '日期', '号码']].copy()
     df_out['期号'] = df_out['期号'].astype(str)
-    # 清洗号码：去空格→去非数字→补零到3位
+    # 清洗号码
     df_out['号码'] = (
         df_out['号码'].astype(str)
         .str.replace(r'\s+', '', regex=True)
@@ -326,12 +665,23 @@ def save_incremental(df, lottery_type):
         .str[:3]
     )
 
+    # 数据校验
+    valid_df, bad_df = _validate_draw_data(df_out, lottery_type)
+    _quarantine_bad_data(bad_df, lottery_type)
+
+    if len(valid_df) == 0:
+        logger.error("❌ {} 全部{}条新数据校验失败，不覆盖原文件".format(lottery_type, len(df_out)))
+        return file_path if file_path.exists() else None
+
+    # 合并旧数据
     if file_path.exists():
         old_df = pd.read_csv(file_path, dtype=str, encoding='utf-8-sig')
-        combined = pd.concat([old_df, df_out], ignore_index=True)
+        # 旧格式迁移
+        old_df = _migrate_old_format(old_df)
+        combined = pd.concat([old_df, valid_df], ignore_index=True)
         combined = combined.drop_duplicates(subset=['期号'], keep='last')
     else:
-        combined = df_out
+        combined = valid_df
 
     combined = combined.sort_values(by='期号', ascending=False).reset_index(drop=True)
     combined.to_csv(file_path, index=False, encoding='utf-8-sig')
@@ -350,10 +700,19 @@ def main():
     parser.add_argument('--days', type=int, default=30,
                         help='获取最近多少期（默认30）')
     parser.add_argument('--max-pages', type=int, default=10,
-                        help='福彩3D抓取页数（每页约21条，默认10页）')
-    parser.add_argument('--source', choices=['zhcw', 'eastmoney', 'auto'], default='auto',
-                        help='福彩3D数据源：zhcw/eastmoney/auto（默认auto=主源+备用校验）')
+                        help='福彩3D抓取页数')
+    parser.add_argument('--source', choices=['zhcw', 'eastmoney', 'auto'],
+                        default='auto',
+                        help='福彩3D数据源：zhcw/eastmoney/auto')
+    parser.add_argument('--cb-status', action='store_true',
+                        help='打印熔断器状态后退出')
     args = parser.parse_args()
+
+    cb = CircuitBreaker()
+
+    if args.cb_status:
+        cb.print_status()
+        return
 
     if not args.all and not args.lottery:
         parser.print_help()
@@ -362,53 +721,167 @@ def main():
     start = datetime.now()
     logger.info("=== 开始数据更新 ===")
 
+    # ─── 排列三 ───
     if args.all or args.lottery == 'pls':
-        d = fetch_pls(args.days)
-        if d:
-            save_incremental(pd.DataFrame(d), 'pls')
+        pls_data = None
+        js_cfg = {'max_failures': 3, 'cooldown_minutes': 60}
+        sporttery_cfg = {'max_failures': 2, 'cooldown_minutes': 120}
 
-    if args.all or args.lottery == 'd3':
-        if args.source == 'eastmoney':
-            df_d3 = fetch_3d_from_eastmoney()
-            if df_d3 is not None:
-                save_incremental(df_d3, 'd3')
-        elif args.source == 'zhcw':
-            df_d3 = fetch_3d_from_zhcw(max_pages=args.max_pages)
-            if df_d3 is not None:
-                save_incremental(df_d3, 'd3')
-        else:  # auto: 主源 + 双源校验 + fallback
-            df_main = fetch_3d_from_zhcw(max_pages=args.max_pages)
-            df_verify = None
+        # Source 1: js-lottery (primary)
+        if cb.should_skip('pls_js_lottery', **js_cfg):
+            logger.info("排列三: js-lottery 冷却中，跳过")
+        else:
             try:
-                df_verify = fetch_3d_from_eastmoney()
-            except Exception:
-                logger.debug("东方财富校验源不可用")
+                pls_data = fetch_pls_from_js_lottery(args.days)
+            except Exception as e:
+                logger.error("排列三(js-lottery): 异常 {}".format(e))
+                pls_data = None
 
-            # 优先保存主源
-            if df_main is not None:
-                save_incremental(df_main, 'd3')
-            elif df_verify is not None:
-                logger.warning("⚠️ 主源(zhcw)失败，回退到东方财富")
-                save_incremental(df_verify, 'd3')
+            if pls_data and len(pls_data) > 0:
+                cb.record_success('pls_js_lottery')
+            else:
+                cb.record_failure('pls_js_lottery', **js_cfg)
+
+        # Source 2: sporttery API (backup)
+        if not pls_data or len(pls_data) == 0:
+            if cb.should_skip('pls_sporttery', **sporttery_cfg):
+                logger.info("排列三: sporttery 冷却中，跳过")
+            else:
+                try:
+                    pls_data = fetch_pls(args.days)
+                except Exception as e:
+                    logger.error("排列三(sporttery): 异常 {}".format(e))
+                    pls_data = None
+
+                if pls_data and len(pls_data) > 0:
+                    cb.record_success('pls_sporttery')
+                else:
+                    cb.record_failure('pls_sporttery', status_code=567, **sporttery_cfg)
+
+        if pls_data and len(pls_data) > 0:
+            save_incremental(pd.DataFrame(pls_data), 'pls')
+        else:
+            logger.warning("⚠️ 排列三: 所有数据源均失败，保留现有数据")
+
+    # ─── 福彩3D ───
+    if args.all or args.lottery == 'd3':
+        df_d3 = None
+        em_cfg = {'max_failures': 3, 'cooldown_minutes': 60}
+        zhcw_cfg = {'max_failures': 2, 'cooldown_minutes': 60}
+
+        if args.source == 'zhcw':
+            if cb.should_skip('d3_zhcw', **zhcw_cfg):
+                logger.info("福彩3D: zhcw 冷却中，跳过")
+            else:
+                try:
+                    df_d3 = fetch_3d_from_zhcw(max_pages=args.max_pages)
+                except Exception as e:
+                    logger.error("福彩3D(zhcw): 异常 {}".format(e))
+                if df_d3 is not None and len(df_d3) > 0:
+                    cb.record_success('d3_zhcw')
+                else:
+                    cb.record_failure('d3_zhcw', **zhcw_cfg)
+
+        elif args.source == 'eastmoney':
+            if cb.should_skip('d3_eastmoney', **em_cfg):
+                logger.info("福彩3D: eastmoney 冷却中，跳过")
+            else:
+                try:
+                    df_d3 = fetch_3d_from_eastmoney()
+                except Exception as e:
+                    logger.error("福彩3D(eastmoney): 异常 {}".format(e))
+                if df_d3 is not None and len(df_d3) > 0:
+                    cb.record_success('d3_eastmoney')
+                else:
+                    cb.record_failure('d3_eastmoney', **em_cfg)
+
+        else:  # auto: eastmoney primary → zhcw fallback → verify
+            # Primary: eastmoney
+            if cb.should_skip('d3_eastmoney', **em_cfg):
+                logger.info("福彩3D: eastmoney 冷却中")
+            else:
+                try:
+                    df_d3 = fetch_3d_from_eastmoney(max_pages=2)
+                except Exception as e:
+                    logger.error("福彩3D(eastmoney): 异常 {}".format(e))
+                if df_d3 is not None and len(df_d3) > 0:
+                    cb.record_success('d3_eastmoney')
+                else:
+                    cb.record_failure('d3_eastmoney', **em_cfg)
+
+            # Fallback: zhcw
+            if df_d3 is None or len(df_d3) == 0:
+                if cb.should_skip('d3_zhcw', **zhcw_cfg):
+                    logger.info("福彩3D: zhcw 冷却中")
+                else:
+                    try:
+                        df_d3 = fetch_3d_from_zhcw(max_pages=args.max_pages)
+                    except Exception as e:
+                        logger.error("福彩3D(zhcw): 异常 {}".format(e))
+                    if df_d3 is not None and len(df_d3) > 0:
+                        cb.record_success('d3_zhcw')
+                        logger.warning("⚠️ 福彩3D: 主源(eastmoney)失败，回退到zhcw")
+                    else:
+                        cb.record_failure('d3_zhcw', **zhcw_cfg)
 
             # 双源校验
-            if df_main is not None and df_verify is not None \
-                    and len(df_main) > 0 and len(df_verify) > 0:
-                latest_main = df_main['期号'].iloc[0]
-                latest_v = df_verify[df_verify['期号'] == latest_main]
-                if len(latest_v) > 0:
-                    num_main = df_main[df_main['期号'] == latest_main]['中奖号码'].iloc[0]
-                    num_v = latest_v['中奖号码'].iloc[0]
-                    if num_main == num_v:
-                        logger.info("✅ 双源校验通过: 期号{} 号码{}一致".format(latest_main, num_main))
+            if args.source == 'auto' and df_d3 is not None and len(df_d3) > 0:
+                df_verify = None
+                if not cb.should_skip('d3_eastmoney', **em_cfg):
+                    try:
+                        df_verify = fetch_3d_from_eastmoney(max_pages=1)
+                    except Exception:
+                        pass
+                if df_verify is not None and len(df_verify) > 0:
+                    latest_main = str(df_d3['期号'].iloc[0])
+                    verify_row = df_verify[df_verify['期号'].astype(str) == latest_main]
+                    if len(verify_row) > 0:
+                        # 安全提取号码字段
+                        if '中奖号码' in df_d3.columns:
+                            main_col = '中奖号码'
+                        elif '号码' in df_d3.columns:
+                            main_col = '号码'
+                        else:
+                            main_col = df_d3.columns[-1]
+                        num_main = str(df_d3[df_d3['期号'].astype(str) == latest_main][main_col].iloc[0])
+
+                        if '中奖号码' in verify_row.columns:
+                            vfy_col = '中奖号码'
+                        elif '号码' in verify_row.columns:
+                            vfy_col = '号码'
+                        else:
+                            vfy_col = verify_row.columns[-1]
+                        num_v = str(verify_row[vfy_col].iloc[0])
+
+                        if num_main == num_v:
+                            logger.info("✅ 双源校验通过: 期号{} 号码{}一致".format(latest_main, num_main))
+                        else:
+                            logger.warning("⚠️ 双源校验不一致: 期号{} 主源={} 校验源={}".format(
+                                latest_main, num_main, num_v))
+                            # 冲突写入结构化 JSON 隔离区
+                            main_date = str(df_d3[df_d3['期号'].astype(str) == latest_main]['开奖日期'].iloc[0]) \
+                                if '开奖日期' in df_d3.columns else \
+                                str(df_d3[df_d3['期号'].astype(str) == latest_main]['日期'].iloc[0]) \
+                                if '日期' in df_d3.columns else ''
+                            vfy_date = str(verify_row['开奖日期'].iloc[0]) \
+                                if '开奖日期' in verify_row.columns else \
+                                str(verify_row['日期'].iloc[0]) \
+                                if '日期' in verify_row.columns else ''
+                            _quarantine_source_conflict(
+                                lottery='d3', issue=latest_main, expected_date='',
+                                primary_source='eastmoney', primary_number=num_main, primary_date=main_date,
+                                verify_source='zhcw', verify_number=num_v, verify_date=vfy_date)
                     else:
-                        logger.warning("⚠️ 双源校验不一致: 期号{} zhcw={} eastmoney={}".format(
-                            latest_main, num_main, num_v))
-                else:
-                    logger.info("ℹ️ 东方财富尚无期号{}的数据，跳过校验".format(latest_main))
+                        logger.info("ℹ️ 校验源尚无期号{}的数据".format(latest_main))
+
+        if df_d3 is not None and len(df_d3) > 0:
+            save_incremental(df_d3, 'd3')
+        else:
+            logger.warning("⚠️ 福彩3D: 所有数据源均失败，保留现有数据")
 
     elapsed = datetime.now() - start
     logger.info("=== 更新完成 (耗时: {}) ===".format(elapsed))
+    cb.print_status()
 
 
 if __name__ == '__main__':

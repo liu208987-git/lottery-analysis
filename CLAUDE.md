@@ -10,12 +10,29 @@
 
 项目通过 Hermes 定时执行，不依赖 GitHub Actions。
 
-| 时间 | 命令 | 说明 |
-|------|------|------|
-| 17:30 | `python run_daily.py --strategy all --top-k 30` | 每日预测（三策略并行） |
-| 22:00 | `python scripts/daily_review.py` | 每日复盘（拉取开奖→对比→摘要） |
+### 下午主任务链（17:20 → 17:30）
+
+> 执行顺序不能颠倒，详见 [docs/HERMES_CONFIG.md](docs/HERMES_CONFIG.md)
+
+| 时间 | 命令 | 说明 | 失败处理 |
+|------|------|------|:--:|
+| 17:20 | `python scripts/daily_review.py` | 补齐昨日复盘（拉取→对比→摘要） | 允许失败 |
+| 17:25 | `python run_daily.py --strategy all --top-k 30` | 生成今日预测（三策略并行） | 必须成功 |
+| 17:28 | `python scripts/source_health.py --json --output output/reports/source_health.json` | 生成数据源健康报告 | 允许失败 |
+| 17:30 | `python scripts/hermes_push.py --mode daily` | 合并推送日报（复盘+预测+健康） | 必须成功 |
 
 > `daily_review.py` 内部依次执行：data_fetcher → feature_engine → compare_result(三策略) → review_summary
+> `hermes_push.py` 只读文件拼接消息，推送失败时内容落盘 `output/push/pending_daily_report.md`，可手动 `--force` 补发
+
+### 晚间静默复盘链（21:35 / 22:05 / 23:10）
+
+| 时间 | 命令 | 说明 |
+|------|------|------|
+| 21:35 | `python scripts/daily_review.py` | 初次复盘（开奖后35分钟） |
+| 22:05 | `python scripts/daily_review.py` | 补偿复盘（数据源延迟兜底） |
+| 23:10 | `python scripts/daily_review.py` | 最后兜底 |
+
+> 晚间只跑复盘不推送，避免打扰。稳定后可通过 `push_review_event_if_needed.py` 实现命中/异常时才推送。
 
 ## 项目结构
 
@@ -23,7 +40,7 @@
 lottery-analysis/
 ├── run_daily.py              # 一键每日运行入口
 ├── scripts/
-│   ├── data_fetcher.py       # 数据抓取（体彩API + zhcw/东方财富）
+│   ├── data_fetcher.py       # 多源数据抓取（js-lottery/eastmoney主源 + sporttery/zhcw备用 + 熔断 + 校验）
 │   ├── feature_engine.py     # 特征工程（113维）+ 数据质量检查
 │   ├── stats_engine.py       # 多窗口统计 + 理论分布
 │   ├── scoring_engine.py     # 评分引擎v2（YAML权重 + 回归惩罚 + 多样性）
@@ -33,7 +50,10 @@ lottery-analysis/
 │   ├── daily_review.py       # 每日复盘一键脚本（Hermes cron调用）
 │   ├── tune_weights.py       # 权重自动调优（随机搜索 + Optuna贝叶斯优化 + 稳定性分析）
 │   ├── filter_engine.py      # 轻量预过滤（已降级）
-│   └── visualize.py          # 走势图/热力图（matplotlib + plotly）
+│   ├── visualize.py          # 走势图/热力图（matplotlib + plotly）
+│   ├── issue_utils.py         # 期号标准化（PLS/D3格式互转）
+│   ├── source_health.py       # 数据源健康报告
+│   └── hermes_push.py         # Hermes日报推送（读文件+拼消息+落盘+去重）
 ├── rules/
 │   ├── scoring_weights.yaml              # 默认权重
 │   ├── scoring_weights_conservative.yaml # 稳健策略
@@ -43,13 +63,15 @@ lottery-analysis/
 │   ├── raw/         # 原始CSV（git忽略）
 │   ├── processed/   # 特征工程输出（git忽略）
 │   ├── archived/    # 种子数据（git追踪）
-│   └── cache/       # 统计缓存（git忽略）
+│   ├── cache/       # 统计缓存 + 熔断状态（git忽略）
+│   └── quarantine/  # 坏数据隔离区（git忽略）
 └── output/
     ├── predictions/ # 预测JSON
     ├── reviews/     # 复盘CSV
     ├── backtests/   # 回测报告
-    ├── reports/     # 数据检查报告
+    ├── reports/     # 数据检查报告 + 健康报告
     ├── charts/      # 可视化图表
+    ├── push/        # 推送日报 + 发送日志 + pending补发
     └── tuning/      # 调参记录
 ```
 
@@ -102,6 +124,24 @@ python scripts/compare_result.py --lottery pls --strategy conservative
 ```bash
 python scripts/review_summary.py
 python scripts/review_summary.py --window 60 --lottery pls
+```
+
+### 数据源健康 & 推送
+
+```bash
+python scripts/source_health.py                          # 终端健康报告
+python scripts/source_health.py --json                   # JSON 格式
+python scripts/source_health.py --json --output output/reports/source_health.json  # 写文件
+python scripts/data_fetcher.py --cb-status               # 熔断器状态
+python scripts/hermes_push.py --mode daily               # 推送日报
+python scripts/hermes_push.py --mode daily --write-only  # 只生成不推送
+python scripts/hermes_push.py --mode daily --force       # 强制补发
+```
+
+### 期号工具
+
+```bash
+python scripts/issue_utils.py                            # 自测
 ```
 
 ### 权重调优（需 review_history ≥ 15 期）
