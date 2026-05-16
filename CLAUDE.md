@@ -6,6 +6,17 @@
 
 > 彩票开奖完全随机，本项目仅供学习研究。所有分析仅基于历史统计，不代表未来结果。
 
+## Hermes cron 定时任务
+
+项目通过 Hermes 定时执行，不依赖 GitHub Actions。
+
+| 时间 | 命令 | 说明 |
+|------|------|------|
+| 17:30 | `python run_daily.py --strategy all --top-k 30` | 每日预测（三策略并行） |
+| 22:00 | `python scripts/daily_review.py` | 每日复盘（拉取开奖→对比→摘要） |
+
+> `daily_review.py` 内部依次执行：data_fetcher → feature_engine → compare_result(三策略) → review_summary
+
 ## 项目结构
 
 ```

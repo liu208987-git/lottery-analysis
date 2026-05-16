@@ -6,11 +6,15 @@ LOTTERY ?= pls
 TOP_K  ?= 30
 STRATEGY ?= default
 
-.PHONY: daily backtest compare review tune clean help
+.PHONY: daily daily-review backtest compare review tune clean help
 
-## 每日一键运行
+## 每日预测（Hermes 17:30）
 daily:
 	python run_daily.py --top-k $(TOP_K) --strategy $(STRATEGY)
+
+## 每日复盘（Hermes 22:00）
+daily-review:
+	python scripts/daily_review.py
 
 ## Walk-forward 回测
 backtest:
