@@ -239,6 +239,7 @@ def fetch_3d_from_eastmoney(max_pages=1):
                 continue
 
             html = resp.text
+            before_count = len(all_rows)
 
             # 提取行：包含 pellet 的 tr 块
             rows = re.findall(r'<tr>\s*<td>.*?</tr>', html, re.DOTALL)
@@ -271,7 +272,7 @@ def fetch_3d_from_eastmoney(max_pages=1):
                             '中奖号码': ''.join(digits[:3]),
                         })
 
-            logger.info("东方财富第 {} 页抓取成功 -> {} 条".format(page, len(blocks) if not rows else 0 or len(all_rows)))
+            logger.info("东方财富第 {} 页抓取成功 -> {} 条".format(page, len(all_rows) - before_count))
 
         except (requests.exceptions.RequestException, ValueError) as e:
             logger.debug("东方财富第 {} 页失败: {}".format(page, e))
