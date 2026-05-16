@@ -53,6 +53,7 @@ lottery-analysis/
 │   ├── backtest.py           # Walk-forward回测（三策略对比）
 │   ├── compare_result.py     # 预测 vs 开奖对比 + review_history累加
 │   ├── review_summary.py     # 最近N期复盘表现摘要
+│   ├── daily_review.py       # 每日复盘一键脚本（Hermes cron调用）
 │   ├── tune_weights.py       # 权重自动调优（随机搜索 + Optuna贝叶斯优化）
 │   ├── filter_engine.py      # 轻量预过滤器
 │   └── visualize.py          # 走势图/热力图（可选）
@@ -263,6 +264,7 @@ python run_daily.py pls --top-k 20 --exclude-recent 3
 
 ## 更新日志
 
+- **v2.7.1** (2026-05-16)：Hermes cron 适配——新增 `daily_review.py` 一键复盘脚本；`compare_result.py` 支持 `--strategy` 多策略对比；`review_history.csv` 增加策略列；回测 ROI 拆分直选/组选；`save_incremental` 空数据保护
 - **v2.7** (2026-05-16)：复盘闭环 + 数据源加固 + 工具链完善——review_history.csv 长期复盘累加、review_summary.py 表现摘要、多策略权重(conservative/diversity)、tune_weights.py 随机搜索+Optuna贝叶斯优化+参数稳定性分析；东方财富福彩3D接入(50条/页)+双源校验+主源失败自动fallback；CLAUDE.md项目指令、Makefile一键命令、data_sources.yaml配置外部化
 - **v2.6.1** (2026-05-15)：P1/P2集中修复——组三回归惩罚(形态评分双向扣分)、API 567退避重试、回测多注命中累加(sum替代any/elif)、回测参数验证、PNG中文字体自动探测；号码清洗加固(normalize_number去空格/补零/剔除非数字)；compare_result输出优化(开奖号码大字展示+一句话摘要)
 - **v2.6** (2026-05-15)：第二轮代码审查修复——shell=True→列表参数、skiprows=0、删除openTime死代码、is_monotonic_increasing优化、generate_all()复用add_features()去重；新增 compare_result.py 预测vs开奖对比脚本；run_daily.py CLI参数化(--top-k/--exclude-recent)；seed数据归档(data/archived/)；Top30字段修复

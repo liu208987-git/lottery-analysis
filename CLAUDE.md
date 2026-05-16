@@ -27,10 +27,11 @@ lottery-analysis/
 │   ├── feature_engine.py     # 特征工程（113维）+ 数据质量检查
 │   ├── stats_engine.py       # 多窗口统计 + 理论分布
 │   ├── scoring_engine.py     # 评分引擎v2（YAML权重 + 回归惩罚 + 多样性）
-│   ├── backtest.py           # Walk-forward 回测（三策略对比）
-│   ├── compare_result.py     # 预测 vs 开奖对比 + review_history 累加
+│   ├── backtest.py           # Walk-forward 回测（三策略对比 + ROI拆分）
+│   ├── compare_result.py     # 预测 vs 开奖对比 + review_history累加
 │   ├── review_summary.py     # 最近N期复盘表现摘要
-│   ├── tune_weights.py       # 权重自动调优（随机搜索 + 稳定性分析）
+│   ├── daily_review.py       # 每日复盘一键脚本（Hermes cron调用）
+│   ├── tune_weights.py       # 权重自动调优（随机搜索 + Optuna贝叶斯优化 + 稳定性分析）
 │   ├── filter_engine.py      # 轻量预过滤（已降级）
 │   └── visualize.py          # 走势图/热力图（matplotlib + plotly）
 ├── rules/
@@ -63,6 +64,13 @@ python run_daily.py --strategy conservative       # 稳健策略
 python run_daily.py --strategy all                # 三套策略全跑
 ```
 
+### 每日复盘（Hermes 22:00）
+
+```bash
+python scripts/daily_review.py                    # 一键复盘（拉取→对比→摘要）
+python scripts/daily_review.py --lottery pls      # 仅排列三
+```
+
 ### 特征工程
 
 ```bash
@@ -86,7 +94,7 @@ python scripts/backtest.py --lottery pls --periods 100 --top-k 30
 
 ```bash
 python scripts/compare_result.py --lottery pls
-python scripts/compare_result.py --lottery d3
+python scripts/compare_result.py --lottery pls --strategy conservative
 ```
 
 ### 复盘摘要
@@ -100,6 +108,7 @@ python scripts/review_summary.py --window 60 --lottery pls
 
 ```bash
 python scripts/tune_weights.py --lottery pls --trials 30 --periods 50
+python scripts/tune_weights.py --lottery pls --method optuna --trials 30
 ```
 
 ### 可视化

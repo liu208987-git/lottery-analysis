@@ -1,6 +1,6 @@
 # 项目审查总览
 
-> 最后更新：2026-05-16 | 版本：v2.7
+> 最后更新：2026-05-16 | 版本：v2.7.1
 
 ## 审查结论
 
@@ -57,7 +57,13 @@
 
 ## 架构变更记录
 
-### v2.7（当前）
+### v2.7.1（当前）
+- Hermes cron 适配：`daily_review.py` 一键复盘（拉取→对比→摘要）；`compare_result.py --strategy` 多策略对比
+- `review_history.csv` 增加策略列，支持按策略分组复盘
+- `backtest.py` ROI 拆分直选/组选独立计算
+- `data_fetcher.py` `save_incremental()` 空数据保护
+
+### v2.7
 - 复盘闭环：`compare_result.py` → `review_history.csv` 累加 → `review_summary.py` 表现摘要
 - 多策略权重：`scoring_weights_conservative.yaml` / `diversity.yaml` + `run_daily.py --strategy all`
 - `tune_weights.py`: 随机搜索 + Optuna TPE 贝叶斯优化 + 参数稳定性分析
