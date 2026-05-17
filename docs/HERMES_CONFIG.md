@@ -58,10 +58,11 @@ Hermes 执行环境需配置以下变量：
 
 ```
 时间: 17:30
-命令: cd /path/to/lottery-analysis && python scripts/hermes_push.py --mode daily
+命令: cd /path/to/lottery-analysis && python scripts/hermes_push.py --mode daily --stdout
 失败处理: 必须成功
-说明: 读取复盘 + 预测 + 健康报告 → 拼接日报 → 落盘 → 推送
-      推送失败时内容保存到 output/push/pending_daily_report.md
+deliver: origin  ← 关键！必须设 origin，Hermes 才会把 stdout 内容转发到微信
+说明: 读取复盘+预测+健康→拼接日报→落盘→stdout 只输出日报正文
+      前三个任务 deliver=local，只有这个任务 deliver=origin
 ```
 
 ---
@@ -184,3 +185,4 @@ python scripts/data_fetcher.py --cb-status
 3. **落盘优先** — 先写 `daily_report.md` 再推送，推送失败内容不丢
 4. **去重防轰炸** — 同一 hash 的日报同一天不会重复推送
 5. **指数冷却** — sporttery API 连续失败后冷却 2h→6h→12h→24h
+6. **stdout 隔离** — `--stdout` 模式只输出日报正文到 stdout，日志/警告全部走 stderr，确保 Hermes deliver=origin 推送内容干净

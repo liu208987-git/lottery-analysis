@@ -424,9 +424,25 @@ def main():
     parser.add_argument("--mode", choices=["daily"], default="daily")
     parser.add_argument("--write-only", action="store_true", help="只生成不推送")
     parser.add_argument("--force", action="store_true", help="忽略今日去重，强制发送")
+    parser.add_argument("--stdout", action="store_true",
+                        help="只输出日报正文到stdout（供Hermes deliver=origin推送），日志走stderr")
     args = parser.parse_args()
 
     text = build_daily_message()
+
+    if args.stdout:
+        # 落盘 + 只输出日报正文到 stdout
+        report_path = PUSH_DIR / "daily_report.md"
+        write_file(report_path, text)
+        h = msg_hash(text)
+        # 去重检查（日志走 stderr 不污染推送内容）
+        if not args.force and already_sent("daily", h):
+            print(f"[跳过] 今日已推送过相同内容", file=sys.stderr)
+            sys.exit(0)
+        append_log("daily", h, True, "hermes deliver=origin")
+        print(text)  # 只有这一行进 stdout → Hermes 推送
+        sys.exit(0)
+
     code = send_or_save(text, kind="daily", force=args.force, do_send=not args.write_only)
     sys.exit(code)
 

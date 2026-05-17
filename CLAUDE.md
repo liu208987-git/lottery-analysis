@@ -19,7 +19,7 @@
 | 17:20 | `python scripts/daily_review.py` | 补齐昨日复盘（拉取→对比→摘要） | 允许失败 |
 | 17:25 | `python run_daily.py --strategy all --top-k 30` | 生成今日预测（三策略并行） | 必须成功 |
 | 17:28 | `python scripts/source_health.py --json --output output/reports/source_health.json` | 生成数据源健康报告 | 允许失败 |
-| 17:30 | `python scripts/hermes_push.py --mode daily` | 合并推送日报（复盘+预测+健康） | 必须成功 |
+| 17:30 | `python scripts/hermes_push.py --mode daily --stdout` | 合并推送日报（复盘+预测+健康） | 必须成功 / **deliver=origin** |
 
 > `daily_review.py` 内部依次执行：data_fetcher → feature_engine → compare_result(三策略) → review_summary
 > `hermes_push.py` 只读文件拼接消息，推送失败时内容落盘 `output/push/pending_daily_report.md`，可手动 `--force` 补发
