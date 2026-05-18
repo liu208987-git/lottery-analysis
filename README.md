@@ -160,13 +160,18 @@ lottery-analysis/
 > 数据源（API/网页）通常在开奖后 15-30 分钟更新，过早拉取可能获取不到最新期。
 
 ### 排列三数据说明
-当前 CSV 包含 3 行非数据头（列名 + 2 行中文说明），
-`feature_engine.py` 需加 `--skiprows 3`。
 
-如果使用其他来源的数据，先用 `head -10 data/raw/pls_raw.csv` 确认格式：
-- 标准三列 CSV（`期号,日期,号码`）：不加 `--skiprows`
-- 2 行中文说明：加 `--skiprows 2`
-- 3 行非数据头（当前）：加 `--skiprows 3`
+当前推荐使用 `scripts/data_fetcher.py --lottery pls` 生成标准 CSV：
+`期号,日期,号码`
+
+这种格式不需要 `--skiprows`，`feature_engine.py` 会自动识别。
+
+只有使用旧版 KittenCN / 500.com 双表头或多说明行 CSV 时，才需要手动指定：
+- 2 行说明：`--skiprows 2`
+- 3 行说明：`--skiprows 3`
+
+不确定时先执行：
+`head -10 data/raw/pls_raw.csv`
 
 ## 回测
 

@@ -557,8 +557,30 @@ def build_daily_message() -> str:
         "",
         format_health_section(),
         "",
-        "⚠️ 彩票具有随机性，以上仅供数据分析与复盘参考，不构成投注建议。",
     ]
+
+    # 期号一致性校验：最新复盘期号 vs 最新预测期号
+    review_rows = pick_latest_review(read_review_csv())
+    if review_rows:
+        # 取复盘的最新期号
+        review_issues = {}
+        for row in review_rows:
+            lotto = row.get("彩种", "")
+            issue = row.get("期号", "")
+            review_issues[lotto] = issue
+        # 对比预测期号
+        for lottery, label in [("pls", "排列三"), ("d3", "福彩3D")]:
+            pred_data = read_json(PRED_DIR / f"latest_{lottery}.json")
+            pred_issue = pred_data.get("预测期号", "")
+            rev_issue = review_issues.get(label, "")
+            rev_issue_digits = "".join(c for c in rev_issue if c.isdigit()) if rev_issue else ""
+            if rev_issue_digits and str(pred_issue) != str(rev_issue_digits):
+                parts.append(f"⚠️ {label}期号不匹配：预测 {pred_issue}，复盘 {rev_issue_digits}")
+        if parts[-1].startswith("⚠️ "):
+            parts.append("  本次复盘基于不同期号，命中数据仅供参考。")
+
+    parts.append("")
+    parts.append("⚠️ 彩票具有随机性，以上仅供数据分析与复盘参考，不构成投注建议。")
     text = "\n".join(parts)
     # 微信单条消息上限约 4096 字符，保守截断
     if len(text) > 4000:

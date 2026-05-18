@@ -97,6 +97,19 @@ def compare(predictions, actual):
 
 def build_report(pred_json, actual, rows):
     """生成对比报告"""
+    # 期号不匹配时返回错误标记（不计算命中，不写 review_history）
+    pred_issue = str(pred_json.get('预测期号', ''))
+    actual_issue = str(actual['期号'])
+    if pred_issue != actual_issue:
+        return {
+            '错误': '预测期号与实际开奖期号不匹配',
+            '预测期号': pred_json.get('预测期号'),
+            '实际期号': actual['期号'],
+            '预测期号匹配': False,
+            '对比时间': datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
+            '彩种': pred_json.get('彩种', ''),
+        }
+
     direct_hit = any(r['直选命中'] for r in rows)
     group_hit = any(r['组选命中'] for r in rows)
 
@@ -151,6 +164,13 @@ def build_report(pred_json, actual, rows):
 
 def print_report(report):
     """终端打印对比摘要"""
+    if report.get('错误'):
+        print(f"\n{'='*55}")
+        print(f"  ⚠️  {report['错误']}")
+        print(f"  预测期号: {report['预测期号']} | 实际期号: {report['实际期号']}")
+        print(f"{'='*55}\n")
+        return
+
     actual = report['开奖详情']
     hit = report['命中情况']
     best = report['最佳逼近']
@@ -191,6 +211,10 @@ def print_report(report):
 
 def append_to_history(report, lottery, strategy='default'):
     """将本期复盘追加到长期复盘总表"""
+    if report.get('错误'):
+        print(f"  ⚠️  跳过写入 review_history（{report['错误']}）")
+        return
+
     history_dir = BASE_DIR / 'output' / 'reviews'
     history_dir.mkdir(parents=True, exist_ok=True)
     history_path = history_dir / 'review_history.csv'
@@ -240,17 +264,6 @@ def main():
 
     pred_json = load_prediction(args.lottery, args.prediction, args.strategy)
     actual = load_latest_draw(args.lottery)
-
-    # 期号不匹配硬拦截
-    pred_issue = pred_json.get('预测期号', '')
-    actual_issue = actual['期号']
-    if str(pred_issue) != str(actual_issue):
-        print(f"[错误] 预测期号与实际开奖期号不匹配，停止复盘", file=sys.stderr)
-        print(f"  预测期号: {pred_issue}", file=sys.stderr)
-        print(f"  实际期号: {actual_issue}", file=sys.stderr)
-        print(f"  建议: 先重新运行 run_daily.py 生成对应期号预测", file=sys.stderr)
-        sys.exit(1)
-
     rows = compare(pred_json.get('推荐', []), actual)
     report = build_report(pred_json, actual, rows)
 
