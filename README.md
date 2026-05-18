@@ -252,11 +252,11 @@ python run_daily.py pls --top-k 20 --exclude-recent 3
 
 | 时间 | 操作 | 说明 |
 |:---|:-----|:-----|
-| 08:00 | `python run_daily.py` | 基于最新数据生成**当晚**预测 |
-| 22:00 | `python scripts/data_fetcher.py --all` | 拉取今晚开奖结果（数据源通常 21:30-22:00 间更新） |
-| 22:00 | `python scripts/compare_result.py --lottery pls` | 预测 vs 开奖对比，自动累加复盘记录 |
-| 22:00 | `python run_daily.py` | 基于最新数据生成**明晚**预测 |
-> ⚠️ 开奖后数据源更新有延迟，建议 22:00 后再拉取。福彩3D 双源自动切换，无需手动准备。
+| 下午 | `python run_daily.py --strategy all --top-k 30` | 生成今晚预测 |
+| 下午 | `python scripts/hermes_push.py --mode predict` | 推送预测（不含复盘） |
+| 21:35+ | `python scripts/daily_review.py && python scripts/hermes_push.py --mode review` | 开奖后复盘+推送（不含预测） |
+
+> 两段式推送：预测和复盘分开推送，避免期号混淆。详见 [docs/HERMES_CONFIG.md](docs/HERMES_CONFIG.md)。
 
 ## 已知问题与限制
 
@@ -270,6 +270,7 @@ python run_daily.py pls --top-k 20 --exclude-recent 3
 
 ## 更新日志
 
+- **v2.10.0** (2026-05-19)：两段式推送 predict/review 分离——hermes_push 新增 predict(预测)/review(复盘)两种模式；compare_result 按期号查找预测文件 + waiting_actual 状态分类(exit 0 不覆盖latest)；HERMES_CONFIG 6 cron job 结构化配置；push_state.json 防重复推送
 - **v2.7.1** (2026-05-16)：Hermes cron 适配——新增 `daily_review.py` 一键复盘脚本；`compare_result.py` 支持 `--strategy` 多策略对比；`review_history.csv` 增加策略列；回测 ROI 拆分直选/组选；`save_incremental` 空数据保护
 - **v2.7** (2026-05-16)：复盘闭环 + 数据源加固 + 工具链完善——review_history.csv 长期复盘累加、review_summary.py 表现摘要、多策略权重(conservative/diversity)、tune_weights.py 随机搜索+Optuna贝叶斯优化+参数稳定性分析；东方财富福彩3D接入(50条/页)+双源校验+主源失败自动fallback；CLAUDE.md项目指令、Makefile一键命令、data_sources.yaml配置外部化
 - **v2.6.1** (2026-05-15)：P1/P2集中修复——组三回归惩罚(形态评分双向扣分)、API 567退避重试、回测多注命中累加(sum替代any/elif)、回测参数验证、PNG中文字体自动探测；号码清洗加固(normalize_number去空格/补零/剔除非数字)；compare_result输出优化(开奖号码大字展示+一句话摘要)
