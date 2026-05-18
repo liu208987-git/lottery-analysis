@@ -541,10 +541,20 @@ def main():
     summary = {}
     if top_k:
         scores = [c['总分'] for c in top_k]
+        all_scores = [c['总分'] for c in scored]
         avg_score = sum(scores) / len(scores)
         group_count = len(set(c['group_number'] for c in top_k))
         high_group_count = sum(1 for c in scored if c['总分'] >= 60)
         candidates = len(scored)
+
+        # 动态分位数（替代固定阈值）
+        sorted_scores = sorted(all_scores, reverse=True)
+        n95 = max(1, int(len(sorted_scores) * 0.05))
+        n90 = max(1, int(len(sorted_scores) * 0.10))
+        p95_score = sorted_scores[n95 - 1] if n95 <= len(sorted_scores) else sorted_scores[-1]
+        p90_score = sorted_scores[n90 - 1] if n90 <= len(sorted_scores) else sorted_scores[-1]
+        p95_count = sum(1 for s in all_scores if s >= p95_score)
+        p90_count = sum(1 for s in all_scores if s >= p90_score)
 
         summary = {
             '总分最高': top_k[0]['总分'],
@@ -556,6 +566,10 @@ def main():
             '高分阈值': 60,
             '高分候选数': high_group_count,
             '候选总数': candidates,
+            'P90分数线': p90_score,
+            'P90候选数': p90_count,
+            'P95分数线': p95_score,
+            'P95候选数': p95_count,
             'Top10号码': [c['号码'] for c in scored[:10]],
             'Top30号码': [c['号码'] for c in scored[:30]],
         }
@@ -563,7 +577,7 @@ def main():
         print(f"\n  📊 摘要:")
         print(f"    总分最高: {summary['总分最高']} | 最低: {summary['总分最低']} | 平均: {summary['平均分']}")
         print(f"    跨度分布: {summary['跨度分布']}")
-        print(f"    组选数: {summary['组选数量']} | 高分组(≥60): {summary['高分候选数']} | 候选: {summary['候选总数']}")
+        print(f"    组选数: {summary['组选数量']} | P95(最高5%): ≥{p95_score}({p95_count}注) | P90(最高10%): ≥{p90_score}({p90_count}注)")
         print(f"    Top10: {' '.join(summary['Top10号码'][:5])}...")
 
     # 风险提示

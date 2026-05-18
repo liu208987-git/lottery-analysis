@@ -285,40 +285,61 @@ def load_stats_cache(lottery: str) -> dict:
     return read_json(path)
 
 
-def format_observation(stats: dict, label: str) -> list[str]:
-    """生成核心观察文本"""
+def format_observation(stats: dict, label: str, pred_data: dict = None) -> list[str]:
+    """生成核心观察文本（紧凑结构版）"""
     if not stats:
         return ["暂无统计缓存"]
 
     w10 = stats.get("窗口", {}).get("近10期", {})
     w30 = stats.get("窗口", {}).get("近30期", {})
+    p5 = stats.get("窗口", {}).get("近5期", {})
 
     lines = []
-    # 和值
-    sum_mean_w10 = w10.get("和值均值", "?")
-    sum_mean_w30 = w30.get("和值均值", "?")
-    high_sum = w10.get("高频和值", [])
-    high_sum_str = "、".join(str(s) for s in high_sum) if high_sum else "?"
-    lines.append(f"和值趋势：近10期均值 {sum_mean_w10}，近30期均值 {sum_mean_w30}")
-    lines.append(f"重点和值参考：{high_sum_str}")
 
-    # 跨度
+    # 和值区间 + 跨度重点（一行搞定）
+    high_sum_w10 = w10.get("高频和值", [])
+    high_span_w10 = w10.get("高频跨度", [])
+    sum_range = w10.get("高频和值区间", "")
     span_mean = w10.get("跨度均值", "?")
-    high_span = w10.get("高频跨度", [])
-    high_span_str = "、".join(str(s) for s in high_span) if high_span else "?"
-    lines.append(f"跨度趋势：近10期均值 {span_mean}，重点跨度参考：{high_span_str}")
+
+    # 结构倾向
+    sum_parts = []
+    if sum_range:
+        sum_parts.append(f"和值区间：{sum_range}")
+    if high_sum_w10:
+        sum_parts.append(f"参考 {' '.join(str(s) for s in sorted(high_sum_w10)[:8])}")
+    span_parts = []
+    if high_span_w10:
+        span_parts.append(f"跨度重点：{' '.join(str(s) for s in sorted(high_span_w10))}（均值{span_mean}）")
+
+    if sum_parts:
+        lines.append("结构倾向：")
+        lines.append("  " + "、".join(sum_parts))
+    if span_parts:
+        lines.append("  " + span_parts[0])
 
     # 形态倾向
-    # 从全位数字频率推断（组三=有数字出现2次）
-    lines.append(f"形态倾向：组六优先，组三少量保留")
+    lines.append("  形态倾向：组六为主，组三少量防守")
 
     # 冷热观察
     hot = hot_numbers(w10)
     cold = cold_numbers(w10)
-    if hot:
-        lines.append(f"热号观察：近10期活跃数字 {'、'.join(hot)}")
-    if cold:
-        lines.append(f"冷号关注：遗漏较久 {'、'.join(cold)}")
+    hot_str = f"热号 {' '.join(hot)}" if hot else ""
+    cold_str = f"冷号 {' '.join(cold)}" if cold else ""
+    if hot_str and cold_str:
+        lines.append(f"  冷热：{hot_str} · {cold_str}")
+    elif hot_str:
+        lines.append(f"  冷热：{hot_str}")
+    elif cold_str:
+        lines.append(f"  冷热：{cold_str}")
+
+    # 高分区分位数（从预测JSON读取）
+    if pred_data:
+        s = pred_data.get("摘要", {})
+        p95_score = s.get("P95分数线")
+        p95_count = s.get("P95候选数")
+        if p95_score is not None:
+            lines.append(f"  高分区：Top 5% 候选（≥{p95_score}分，{p95_count}注）")
 
     return lines
 
@@ -343,7 +364,7 @@ def format_prediction_section(lottery: str, label: str) -> str:
 
     # 核心观察
     stats = load_stats_cache(lottery)
-    obs_lines = format_observation(stats, label)
+    obs_lines = format_observation(stats, label, pred_data=data)
 
     # 三策略共振
     consensus_nums: dict[str, int] = {}
