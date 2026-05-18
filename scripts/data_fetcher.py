@@ -30,6 +30,11 @@ import pandas as pd
 import requests
 import yaml
 
+try:
+    from issue_utils import validate_issue
+except ImportError:
+    from scripts.issue_utils import validate_issue
+
 # ==========================================
 #  日志
 # ==========================================
@@ -526,15 +531,13 @@ def _validate_draw_data(df, lottery):
         number = str(row.get('号码', row.get('中奖号码', ''))).strip()
         date_val = str(row.get('日期', row.get('开奖日期', ''))).strip()
 
-        # 1. 期号非空
+        # 1. 期号非空 + 格式校验（复用 issue_utils）
         if not issue:
             errors.append("期号为空")
         else:
-            expected_len = 5 if lottery == 'pls' else 7
-            if len(issue) != expected_len:
-                errors.append("期号长度不为{}".format(expected_len))
-            if not issue.isdigit():
-                errors.append("期号含非数字")
+            result = validate_issue(issue, lottery)
+            if not result['valid']:
+                errors.append(result['reason'])
 
         # 2. 号码3位数字
         number = number.replace(' ', '')

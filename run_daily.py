@@ -15,11 +15,13 @@
 """
 
 import argparse
+import logging
 import subprocess
 import sys
-import logging
 from datetime import datetime
 from pathlib import Path
+
+import pandas as pd
 
 logging.basicConfig(
     level=logging.INFO,
@@ -39,17 +41,18 @@ def run_cmd(cmd, desc, timeout=300):
         result = subprocess.run(
             cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
             timeout=timeout, cwd=str(BASE),
+            text=True, encoding='utf-8', errors='replace',
         )
         if result.returncode == 0:
             logger.info(f"✅ {desc}")
-            lines = [l for l in result.stdout.decode().split('\n') if l.strip()]
+            lines = [l for l in result.stdout.split('\n') if l.strip()]
             if lines:
                 for line in lines[-2:]:
                     logger.info(f"   {line.strip()}")
             return True
         else:
             logger.error(f"❌ {desc} 失败")
-            for line in result.stderr.decode().strip().split('\n')[-5:]:
+            for line in result.stderr.strip().split('\n')[-5:]:
                 logger.error(f"   {line}")
             return False
     except subprocess.TimeoutExpired:
@@ -61,14 +64,48 @@ def run_cmd(cmd, desc, timeout=300):
 
 
 def ensure_seed_data(lottery):
-    """如果 raw 文件不存在，从 archived 复制一份种子数据"""
+    """如果 raw 文件不存在，从 archived 初始化并标准化为标准三列格式"""
     raw_file = BASE / f"data/raw/{lottery}_raw.csv"
     archived_file = BASE / f"data/archived/{lottery}_history.csv"
 
-    if not raw_file.exists() and archived_file.exists():
-        raw_file.parent.mkdir(parents=True, exist_ok=True)
-        raw_file.write_text(archived_file.read_text(encoding="utf-8-sig"), encoding="utf-8-sig")
-        logger.info(f"已从归档数据初始化: {raw_file}")
+    if raw_file.exists() or not archived_file.exists():
+        return
+
+    raw_file.parent.mkdir(parents=True, exist_ok=True)
+
+    # 读取归档并自动识别格式（标准三列 or 旧KittenCN格式）
+    for skiprows in (0, 2):
+        try:
+            df = pd.read_csv(archived_file, dtype=str, encoding='utf-8-sig', skiprows=skiprows,
+                             on_bad_lines='skip')
+        except Exception:
+            continue
+        cols = set(str(c) for c in df.columns)
+
+        # 标准格式：已迁移完毕
+        if {'期号', '日期', '号码'}.issubset(cols):
+            df = df[['期号', '日期', '号码']].copy()
+            break
+
+        # 旧 KittenCN 格式：期数,红球_1,红球_2,红球_3
+        if {'期数', '红球_1', '红球_2', '红球_3'}.issubset(cols):
+            out = pd.DataFrame()
+            out['期号'] = df['期数'].astype(str).str.extract(r'(\d+)', expand=False)
+            out['号码'] = (
+                df['红球_1'].astype(str).str.extract(r'(\d)', expand=False).fillna('') +
+                df['红球_2'].astype(str).str.extract(r'(\d)', expand=False).fillna('') +
+                df['红球_3'].astype(str).str.extract(r'(\d)', expand=False).fillna('')
+            )
+            out['日期'] = ''
+            out = out[out['期号'].notna() & out['号码'].str.match(r'^\d{3}$')]
+            df = out[['期号', '日期', '号码']].copy()
+            break
+    else:
+        logger.error(f"无法识别种子数据格式: {archived_file}")
+        return
+
+    df.to_csv(raw_file, index=False, encoding='utf-8-sig')
+    logger.info(f"已从归档数据初始化并标准化: {raw_file} ({len(df)} 条)")
 
 
 def pipeline(lottery, label, skiprows=0, top_k=30, exclude_recent=5, strategy='default'):
