@@ -19,10 +19,10 @@
 | 17:20 | `python scripts/daily_review.py` | 补齐昨日复盘（拉取→对比→摘要） | 允许失败 |
 | 17:25 | `python run_daily.py --strategy all --top-k 30` | 生成今日预测（三策略并行） | 必须成功 |
 | 17:28 | `python scripts/source_health.py --json --output output/reports/source_health.json` | 生成数据源健康报告 | 允许失败 |
-| 17:30 | `python scripts/hermes_push.py --mode daily --stdout` | 合并推送日报（复盘+预测+健康） | 必须成功 / **deliver=origin** |
+| 17:30 | `python scripts/hermes_push.py --mode daily --stdout` | 合并推送日报（7段结构：复盘+预测+重点+健康） | 必须成功 / **deliver=origin** |
 
-> `daily_review.py` 内部依次执行：data_fetcher → feature_engine → compare_result(三策略) → review_summary
-> `hermes_push.py` 只读文件拼接消息，输出7段日报：①标题 ②昨日复盘（含形态/和值/跨度+分策略表现+一句话结论）③排列三预测（核心观察+Top10+共振分档+重点关注/备选）④福彩3D预测（同上）⑤今日重点关注总表 ⑥数据源状态 ⑦风险提示。推送失败时内容落盘 `output/push/pending_daily_report.md`，可手动 `--force` 补发
+> `daily_review.py` 内部依次执行：data_fetcher → feature_engine → compare_result(三策略) → review_summary。compare_result 已有期号不匹配硬拦截（`pred_json['预测期号'] != actual['期号']` 时 `sys.exit(1)` 不写 review_history）。
+> `hermes_push.py` 只读文件拼接消息，输出7段日报：①标题 ②昨日复盘（含形态/和值/跨度+分策略表现+一句话结论）③排列三预测（核心观察+Top10+共振分档+重点关注/备选）④福彩3D预测（同上）⑤今日重点关注总表 ⑥数据源状态 ⑦风险提示。推送失败时内容落盘 `output/push/pending_daily_report.md`，可手动 `--force` 补发。
 
 ### 晚间静默复盘链（21:35 / 22:05 / 23:10）
 
@@ -181,8 +181,10 @@ review_summary.py → 终端表现摘要
 3. **YAML 权重可配置**：改策略不改代码
 4. **回归惩罚**：形态评分双向惩罚偏离理论值（过热降分、过冷加分）
 5. **多样性惩罚**：同组选只保留最高分直选 + 跨度多样性促进
-6. **不做 LSTM/ML 直接预测号码**：彩票无时间依赖，ML 不优于统计方法
-7. **号码始终当字符串**：防止前导零丢失（040→40）
+6. **遗漏评分上限截断**：`miss_score = max(0, min(miss_score, W['遗漏']))`，防止三热号场景遗漏分超过配置权重2倍（14/7）
+7. **预测期号硬拦截**：`compare_result.py main()` 中校验 `pred_json['预测期号'] == actual['期号']`，不匹配拒绝写入 review_history
+8. **不做 LSTM/ML 直接预测号码**：彩票无时间依赖，ML 不优于统计方法
+9. **号码始终当字符串**：防止前导零丢失（040→40）
 
 ## 文件编码
 
