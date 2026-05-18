@@ -1,4 +1,4 @@
-﻿#!/usr/bin/env python3
+#!/usr/bin/env python3
 """
 回测系统 v2 —— walk-forward + 基准对比
 =======================================
