@@ -443,9 +443,11 @@ def to_rel(path_str, base_dir):
 def get_git_commit(base_dir=None):
     """获取当前git commit hash（失败返回 None）"""
     try:
+        cwd = str(base_dir.resolve()) if base_dir else None
         result = subprocess.run(
             ['git', 'rev-parse', '--short', 'HEAD'],
-            stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=5
+            stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=5,
+            cwd=cwd,
         )
         if result.returncode == 0:
             return result.stdout.decode().strip()
@@ -586,7 +588,7 @@ def main():
     print(f"\n  ⚠️  {risk_note}")
 
     # 生成信息（相对路径）
-    git_commit = get_git_commit()
+    git_commit = get_git_commit(base_dir)
     gen_info = {
         '命令': 'python scripts/scoring_engine.py --lottery {} --top-k {} --exclude-recent {} --exclude-mode {}{}'.format(
             args.lottery, args.top_k, args.exclude_recent, args.exclude_mode,
