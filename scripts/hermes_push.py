@@ -640,41 +640,154 @@ def write_file(path: Path, text: str) -> bool:
         return False
 
 
-def send_webhook(text: str) -> tuple[bool, str]:
-    hermes_url = os.getenv("HERMES_WEBHOOK_URL", "")
-    wecom_url = os.getenv("WECOM_WEBHOOK_URL", "")
+# ═══════════════════════════════════════════
+#  推送通道（独立隔离，微信失败不拖垮飞书）
+# ═══════════════════════════════════════════
 
-    if not hermes_url and not wecom_url:
-        print(text)
-        return True, "no webhook, printed only"
+WECHAT_COOLDOWN = 5       # 微信发送前固定冷却秒数
+WECHAT_MAX_RETRIES = 3    # 限频时最大退避次数
+WECHAT_BACKOFF = [30, 60, 120]  # 限频退避秒数
 
-    if wecom_url:
-        url = wecom_url
-        payload = {"msgtype": "markdown", "markdown": {"content": text}}
-    else:
-        url = hermes_url
-        payload = {"text": text}
 
-    last_err = ""
-    for attempt in range(1, 4):
+def send_feishu(text: str) -> tuple[bool, str]:
+    """飞书 webhook（主通道）"""
+    url = os.getenv("FEISHU_WEBHOOK_URL", "")
+    if not url:
+        return False, "FEISHU_WEBHOOK_URL not set"
+    try:
+        resp = requests.post(
+            url,
+            json={"msg_type": "text", "content": {"text": text}},
+            timeout=15,
+        )
+        if resp.status_code == 200:
+            body = resp.json()
+            if body.get("code", -1) != 0:
+                return False, f"feishu code={body.get('code')} msg={body.get('msg','')}"
+            return True, "feishu ok"
+        return False, f"feishu HTTP {resp.status_code}"
+    except Exception as e:
+        return False, f"feishu exception: {e}"
+
+
+def send_wechat(text: str) -> tuple[bool, str]:
+    """企业微信机器人（辅助通道，带限频退避）"""
+    url = os.getenv("WECOM_WEBHOOK_URL", "")
+    if not url:
+        return False, "WECOM_WEBHOOK_URL not set"
+
+    time.sleep(WECHAT_COOLDOWN)
+
+    for i in range(WECHAT_MAX_RETRIES):
         try:
-            resp = requests.post(url, json=payload, timeout=20)
+            resp = requests.post(
+                url,
+                json={"msgtype": "markdown", "markdown": {"content": text}},
+                timeout=15,
+            )
             if resp.status_code == 200:
-                try:
-                    body = resp.json()
-                    if body.get("errcode", 0) != 0:
-                        last_err = f"errcode={body['errcode']} {body.get('errmsg','')}"
-                    else:
-                        return True, "ok"
-                except Exception:
-                    return True, "ok"
-            else:
-                last_err = f"HTTP {resp.status_code}"
+                body = resp.json()
+                errcode = body.get("errcode", -1)
+                errmsg = body.get("errmsg", "")
+                if errcode == 0:
+                    return True, "wechat ok"
+                if "rate" in errmsg.lower() and "limit" in errmsg.lower():
+                    wait = WECHAT_BACKOFF[i] if i < len(WECHAT_BACKOFF) else 60
+                    print(f"[WARN] 微信限频，等待 {wait}s 后重试 ({i+1}/{WECHAT_MAX_RETRIES})",
+                          file=sys.stderr)
+                    time.sleep(wait)
+                    continue
+                if errcode == 45009:  # 接口调用频率限制
+                    wait = WECHAT_BACKOFF[i] if i < len(WECHAT_BACKOFF) else 60
+                    time.sleep(wait)
+                    continue
+                return False, f"wechat errcode={errcode} {errmsg}"
+            return False, f"wechat HTTP {resp.status_code}"
         except Exception as e:
-            last_err = str(e)
-        time.sleep(min(60, 5 * attempt * attempt) + random.randint(1, 5))
+            err = str(e)
+            if "rate" in err.lower() and "limit" in err.lower():
+                wait = WECHAT_BACKOFF[i] if i < len(WECHAT_BACKOFF) else 60
+                time.sleep(wait)
+                continue
+            if i < WECHAT_MAX_RETRIES - 1:
+                time.sleep(WECHAT_BACKOFF[i] if i < len(WECHAT_BACKOFF) else 30)
+                continue
+            return False, f"wechat exception: {e}"
 
-    return False, last_err
+    return False, f"wechat rate limited after {WECHAT_MAX_RETRIES} retries"
+
+
+def send_generic(text: str) -> tuple[bool, str]:
+    """通用 webhook（兜底通道）"""
+    url = os.getenv("HERMES_WEBHOOK_URL", "")
+    if not url:
+        return False, "HERMES_WEBHOOK_URL not set"
+    try:
+        resp = requests.post(url, json={"text": text}, timeout=15)
+        if resp.status_code == 200:
+            return True, "generic ok"
+        return False, f"generic HTTP {resp.status_code}"
+    except Exception as e:
+        return False, f"generic exception: {e}"
+
+
+def push_to_all_channels(text: str, kind: str, force: bool = False) -> dict[str, str]:
+    """推送到所有已配置通道，各通道独立隔离"""
+    state = load_push_state()
+    state_key = f"{today_str()}_{kind}"
+    results = {}
+
+    channels = [
+        ("feishu", send_feishu, os.getenv("FEISHU_WEBHOOK_URL")),
+        ("wechat", send_wechat, os.getenv("WECOM_WEBHOOK_URL")),
+        ("generic", send_generic, os.getenv("HERMES_WEBHOOK_URL")),
+    ]
+
+    for ch_name, send_func, env_url in channels:
+        if not env_url:
+            continue
+
+        ch_key = f"{state_key}_{ch_name}"
+        # 去重：已成功推送的通道跳过
+        if not force and state.get(ch_key) == "success":
+            print(f"[跳过] {ch_name} 今日已推送成功", file=sys.stderr)
+            results[ch_name] = "skipped (already sent)"
+            continue
+        # 限频失败的不重试（除非 --force）
+        if not force and state.get(ch_key, "").startswith("failed_rate"):
+            print(f"[跳过] {ch_name} 今日限频失败，不再重试", file=sys.stderr)
+            results[ch_name] = "skipped (rate limited earlier)"
+            continue
+
+        ok, detail = send_func(text)
+        results[ch_name] = "success" if ok else f"failed: {detail}"
+        state[ch_key] = results[ch_name]
+        if ok:
+            print(f"[完成] {ch_name} 推送成功", file=sys.stderr)
+        else:
+            print(f"[失败] {ch_name}: {detail}", file=sys.stderr)
+
+    save_push_state(state)
+    return results
+
+
+# push_state.json 读写
+def load_push_state() -> dict:
+    path = PUSH_DIR / "push_state.json"
+    if path.exists():
+        try:
+            return json.loads(path.read_text(encoding="utf-8"))
+        except Exception:
+            pass
+    return {}
+
+
+def save_push_state(state: dict):
+    path = PUSH_DIR / "push_state.json"
+    try:
+        path.write_text(json.dumps(state, ensure_ascii=False, indent=2), encoding="utf-8")
+    except Exception as e:
+        print(f"[WARN] 写入 push_state 失败: {e}", file=sys.stderr)
 
 
 def send_or_save(text: str, kind: str, force: bool = False, do_send: bool = True) -> int:
@@ -697,18 +810,22 @@ def send_or_save(text: str, kind: str, force: bool = False, do_send: bool = True
         append_log(kind, h, True, "write only")
         return 0
 
-    ok, detail = send_webhook(text)
-    append_log(kind, h, ok, detail)
+    # 多通道推送（各通道独立隔离）
+    results = push_to_all_channels(text, kind, force)
+    success_count = sum(1 for v in results.values() if v == "success" or v.startswith("skipped"))
+    fail_count = len(results) - success_count
 
-    if ok:
+    if success_count > 0:
         if pending_path.exists():
             pending_path.unlink()
-        print(f"[完成] {kind} 推送成功")
+        append_log(kind, h, True, f"channels: {results}")
+        print(f"[完成] {kind} 推送: {results}")
         return 0
 
+    # 全部通道失败
     write_file(pending_path, text)
-    print(f"[失败] {kind} 推送失败，已落盘: {pending_path}")
-    print(f"  原因: {detail}")
+    append_log(kind, h, False, f"all channels failed: {results}")
+    print(f"[失败] {kind} 全部通道推送失败，已落盘: {pending_path}")
     return 2
 
 

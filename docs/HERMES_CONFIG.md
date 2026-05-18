@@ -9,12 +9,14 @@
 
 Hermes 执行环境需配置以下变量：
 
-| 变量名 | 必填 | 说明 | 示例 |
+| 变量名 | 必填 | 通道 | 说明 |
 |------|:--:|------|------|
-| `HERMES_WEBHOOK_URL` | 否 | 通用 Webhook 推送地址 | `https://your-webhook.example.com/send` |
-| `WECOM_WEBHOOK_URL` | 否 | 企业微信群机器人 Webhook | `https://qyapi.weixin.qq.com/cgi-bin/webhook/send?key=xxx` |
+| `FEISHU_WEBHOOK_URL` | 推荐 | **飞书（主通道）** | 飞书机器人 Webhook，不限频，优先使用 |
+| `WECOM_WEBHOOK_URL` | 可选 | 微信（辅助通道） | 企业微信群机器人，有限频保护（冷却5s + 退避30/60/120s） |
+| `HERMES_WEBHOOK_URL` | 可选 | 通用（兜底通道） | 通用 Webhook 地址 |
 
-> 二选一即可，都配置时优先使用 `WECOM_WEBHOOK_URL`（企业微信格式）。都不配置时推送内容仅打印到 stdout，不发送。
+> 三个通道独立隔离，任一失败不影响其他。飞书为主通道（不限频），微信为辅助（带限频保护）。
+> 都不配置时走 `--stdout` 模式，由 Hermes `deliver=origin` 负责推送。
 
 ---
 
