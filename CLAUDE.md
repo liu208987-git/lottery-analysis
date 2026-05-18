@@ -22,7 +22,7 @@
 | 17:30 | `python scripts/hermes_push.py --mode daily --stdout` | 合并推送日报（复盘+预测+健康） | 必须成功 / **deliver=origin** |
 
 > `daily_review.py` 内部依次执行：data_fetcher → feature_engine → compare_result(三策略) → review_summary
-> `hermes_push.py` 只读文件拼接消息，推送失败时内容落盘 `output/push/pending_daily_report.md`，可手动 `--force` 补发
+> `hermes_push.py` 只读文件拼接消息，输出7段日报：①标题 ②昨日复盘（含形态/和值/跨度+分策略表现+一句话结论）③排列三预测（核心观察+Top10+共振分档+重点关注/备选）④福彩3D预测（同上）⑤今日重点关注总表 ⑥数据源状态 ⑦风险提示。推送失败时内容落盘 `output/push/pending_daily_report.md`，可手动 `--force` 补发
 
 ### 晚间静默复盘链（21:35 / 22:05 / 23:10）
 
@@ -53,7 +53,7 @@ lottery-analysis/
 │   ├── visualize.py          # 走势图/热力图（matplotlib + plotly）
 │   ├── issue_utils.py         # 期号标准化（PLS/D3格式互转）
 │   ├── source_health.py       # 数据源健康报告
-│   └── hermes_push.py         # Hermes日报推送（读文件+拼消息+落盘+去重）
+│   └── hermes_push.py         # Hermes日报推送（7段日报：复盘+预测+重点+健康，读文件+拼消息+落盘+去重）
 ├── rules/
 │   ├── scoring_weights.yaml              # 默认权重
 │   ├── scoring_weights_conservative.yaml # 稳健策略

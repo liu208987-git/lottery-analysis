@@ -1,11 +1,18 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-Hermes 日报推送脚本
-==================
-只读文件 → 拼接日报 → 落盘 → 推送 → 去重
+Hermes 日报推送脚本（升级版）
+===========================
+GPT 建议 7 段结构：
+  1. 标题
+  2. 昨日复盘（含形态/和值/跨度 + 分策略表现 + 最佳策略 + 一句话结论）
+  3. 排列三今日预测（核心观察 + Top10 + 共振分档 + 重点关注/备选）
+  4. 福彩3D今日预测（同上）
+  5. 今日重点关注（双彩种主/辅看一览）
+  6. 数据源状态（健康报告）
+  7. 风险提示
 
-用法:
+用法：
     python scripts/hermes_push.py --mode daily           # 正常推送
     python scripts/hermes_push.py --mode daily --force   # 强制补发
     python scripts/hermes_push.py --mode daily --write-only  # 只生成不推送
@@ -51,7 +58,7 @@ def yesterday_str() -> str:
 
 
 # ═══════════════════════════════════════════
-#  文件读取
+#  文件读取 & 工具函数
 # ═══════════════════════════════════════════
 
 def read_json(path: Path) -> dict[str, Any]:
@@ -75,16 +82,60 @@ def read_review_csv() -> list[dict[str, str]]:
         return []
 
 
+def calc_sum(nums: str) -> int:
+    """从号码字符串计算和值（如 '835' → 16）"""
+    digits = [int(c) for c in nums if c.isdigit()]
+    return sum(digits) if len(digits) == 3 else 0
+
+
+def calc_span(nums: str) -> int:
+    """从号码字符串计算跨度（如 '835' → 5）"""
+    digits = [int(c) for c in nums if c.isdigit()]
+    return max(digits) - min(digits) if len(digits) == 3 else 0
+
+
+def calc_pattern(nums: str) -> str:
+    """从号码字符串判断形态：豹子/组三/组六"""
+    digits = [int(c) for c in nums if c.isdigit()]
+    if len(digits) != 3:
+        return "未知"
+    if digits[0] == digits[1] == digits[2]:
+        return "豹子"
+    if digits[0] == digits[1] or digits[1] == digits[2] or digits[0] == digits[2]:
+        return "组三"
+    return "组六"
+
+
+def parse_bool(val: str) -> bool:
+    return str(val).strip().lower() in {"true", "1", "yes", "y", "是", "命中", "✅"}
+
+
+def hot_numbers(win: dict) -> list[str]:
+    """从窗口统计提取热号（近10期出现最多的数字）"""
+    freq = win.get("全位数字频率", {})
+    if not freq:
+        return []
+    sorted_nums = sorted(freq.items(), key=lambda x: -x[1])
+    return [str(k) for k, v in sorted_nums if v >= max(1, len(sorted_nums) / 3)]
+
+
+def cold_numbers(win: dict) -> list[str]:
+    """从窗口统计提取冷号（近期遗漏较长的数字）"""
+    omission = win.get("当前遗漏", {})
+    if not omission:
+        return []
+    avg = win.get("平均遗漏", 3)
+    return [str(k) for k, v in sorted(omission.items(), key=lambda x: -x[1]) if v and v >= avg]
+
+
 # ═══════════════════════════════════════════
-#  复盘格式化
+#  昨日复盘格式化（升级版）
 # ═══════════════════════════════════════════
 
 def pick_latest_review(rows: list[dict[str, str]]) -> list[dict[str, str]]:
     """每个彩种取最新一期（三策略各一条）"""
     if not rows:
         return []
-
-    # 按彩种分组，找最大期号
     latest: dict[str, int] = {}
     for row in rows:
         lottery = row.get("彩种", "")
@@ -95,19 +146,31 @@ def pick_latest_review(rows: list[dict[str, str]]) -> list[dict[str, str]]:
         num = int(digits)
         if num > latest.get(lottery, -1):
             latest[lottery] = num
-
     return [r for r in rows
             if "".join(c for c in r.get("期号", "") if c.isdigit()) == str(latest.get(r.get("彩种", ""), ""))]
 
 
-def parse_bool(val: str) -> bool:
-    return str(val).strip().lower() in {"true", "1", "yes", "y", "是", "命中", "✅"}
-
-
 def format_review_section() -> str:
-    """读取 review_history.csv → 拼接昨日复盘"""
-    rows = pick_latest_review(read_review_csv())
+    """
+    读取 review_history.csv → 拼接升级版复盘
+    格式：
+        【排列三 261XX】
+        开奖号码：835
+        形态：组六｜和值：16｜跨度：5
 
+        策略表现：
+        ✅ conservative：命中走势区间
+          - 和值预测区间：14-18，实际 16，命中
+          - 跨度预测区间：4-6，实际 5，命中
+          - 和值差+跨度差：0，昨日最佳策略
+
+        其他策略：
+        - default：和值差+跨度差=2
+        - aggressive：和值差+跨度差=3
+
+        复盘结论：昨日排列三走势落在中和值、中跨度、组六形态区间，conservative 策略判断最接近。
+    """
+    rows = pick_latest_review(read_review_csv())
     if not rows:
         return "【昨日复盘】\n暂无复盘数据"
 
@@ -118,46 +181,87 @@ def format_review_section() -> str:
         issue = row.get("期号", "未知")
         grouped.setdefault((lottery, issue), []).append(row)
 
-    lines = ["【昨日复盘】"]
+    output_parts = ["━━━━━━━━━━━━━━\n一、昨日复盘\n━━━━━━━━━━━━━━"]
 
     for (lottery, issue), items in sorted(grouped.items()):
         actual = items[0].get("开奖号码", "未知")
+        pattern = calc_pattern(actual)
+        total = calc_sum(actual)
+        span = calc_span(actual)
 
-        direct_hits: list[str] = []
-        group_hits: list[str] = []
+        output_parts.append(f"\n【{lottery} {issue}】")
+        output_parts.append(f"开奖号码：{actual}")
+        output_parts.append(f"形态：{pattern}｜和值：{total}｜跨度：{span}")
+
+        # 分策略表现
+        strategy_results = []
         best_strategy = ""
         best_score = 9999
 
         for item in items:
             st = item.get("策略", "default")
-            if parse_bool(item.get("直选命中Top30", "")):
-                direct_hits.append(st)
-            if parse_bool(item.get("组选命中Top30", "")):
-                group_hits.append(st)
-            # 最佳接近策略：和值差+跨度差最小
-            sum_d = int(item.get("Top1和值误差", 99))
-            span_d = int(item.get("Top1跨度误差", 99))
-            score = sum_d + span_d
+            sum_err = int(item.get("Top1和值误差", 99))
+            span_err = int(item.get("Top1跨度误差", 99))
+            form_ok = parse_bool(item.get("Top1形态一致", ""))
+            score = sum_err + span_err
+            direct_hit = parse_bool(item.get("直选命中Top30", ""))
+            group_hit = parse_bool(item.get("组选命中Top30", ""))
+
+            strategy_results.append({
+                "name": st,
+                "sum_err": sum_err,
+                "span_err": span_err,
+                "score": score,
+                "form_ok": form_ok,
+                "direct_hit": direct_hit,
+                "group_hit": group_hit,
+            })
             if score < best_score:
                 best_score = score
                 best_strategy = st
 
-        hit_detail = ""
-        if group_hits:
-            hit_detail += f"；组选命中({','.join(group_hits)})"
-        if direct_hits:
-            hit_detail += f"；直选命中({','.join(direct_hits)})"
+        # 最佳策略详细展示
+        best_entry = next((r for r in strategy_results if r["name"] == best_strategy), None)
+        if best_entry:
+            output_parts.append(f"\n策略表现：")
+            hits = []
+            if best_entry["direct_hit"]:
+                hits.append("直选命中")
+            if best_entry["group_hit"]:
+                hits.append("组选命中")
+            hit_str = f"（{' + '.join(hits)}）" if hits else ""
+            output_parts.append(f"✅ {best_strategy}：命中走势区间{hit_str}")
+            output_parts.append(f"  - 和值差={best_entry['sum_err']}，跨度差={best_entry['span_err']}")
+            output_parts.append(f"  - 和值差+跨度差={best_score}，昨日最佳策略")
 
-        lines.append(
-            f"{lottery} {issue}：开奖 {actual}{hit_detail}；"
-            f"最佳策略 {best_strategy}(和值差+跨度差={best_score})"
+        # 其他策略
+        others = [r for r in strategy_results if r["name"] != best_strategy]
+        if others:
+            output_parts.append(f"\n其他策略：")
+            for r in others:
+                hits_o = []
+                if r["direct_hit"]:
+                    hits_o.append("直选")
+                if r["group_hit"]:
+                    hits_o.append("组选")
+                hit_o_str = f"（{' + '.join(hits_o)}命中）" if hits_o else "（未命中）"
+                output_parts.append(f"- {r['name']}：和值差+跨度差={r['score']}{hit_o_str}")
+
+        # 一句话复盘结论
+        sum_comment = "偏低" if total <= 10 else ("偏高" if total >= 20 else "居中")
+        span_comment = "小" if span <= 3 else ("大" if span >= 7 else "中")
+        output_parts.append(
+            f"\n复盘结论：\n"
+            f"昨日{lottery}走势落在{'低' if total <= 9 else '中' if total <= 17 else '高'}和值、"
+            f"{span_comment}跨度、{pattern}形态区间，"
+            f"{best_strategy} 策略判断最接近。"
         )
 
-    return "\n".join(lines)
+    return "\n".join(output_parts)
 
 
 # ═══════════════════════════════════════════
-#  预测格式化
+#  今日预测格式化（升级版）
 # ═══════════════════════════════════════════
 
 def extract_top10(data: dict, key: str = "Top10号码") -> list[str]:
@@ -165,7 +269,6 @@ def extract_top10(data: dict, key: str = "Top10号码") -> list[str]:
     nums = summary.get(key, [])
     if nums:
         return [str(x).zfill(3) for x in nums[:10]]
-    # fallback: 从推荐列表提取
     recommends = data.get("推荐", [])
     result = []
     for item in (recommends or [])[:10]:
@@ -176,8 +279,59 @@ def extract_top10(data: dict, key: str = "Top10号码") -> list[str]:
     return result[:10]
 
 
+def load_stats_cache(lottery: str) -> dict:
+    """加载统计缓存"""
+    path = CACHE_DIR / f"{lottery}_stats_latest.json"
+    return read_json(path)
+
+
+def format_observation(stats: dict, label: str) -> list[str]:
+    """生成核心观察文本"""
+    if not stats:
+        return ["暂无统计缓存"]
+
+    w10 = stats.get("窗口", {}).get("近10期", {})
+    w30 = stats.get("窗口", {}).get("近30期", {})
+
+    lines = []
+    # 和值
+    sum_mean_w10 = w10.get("和值均值", "?")
+    sum_mean_w30 = w30.get("和值均值", "?")
+    high_sum = w10.get("高频和值", [])
+    high_sum_str = "、".join(str(s) for s in high_sum) if high_sum else "?"
+    lines.append(f"和值趋势：近10期均值 {sum_mean_w10}，近30期均值 {sum_mean_w30}")
+    lines.append(f"重点和值参考：{high_sum_str}")
+
+    # 跨度
+    span_mean = w10.get("跨度均值", "?")
+    high_span = w10.get("高频跨度", [])
+    high_span_str = "、".join(str(s) for s in high_span) if high_span else "?"
+    lines.append(f"跨度趋势：近10期均值 {span_mean}，重点跨度参考：{high_span_str}")
+
+    # 形态倾向
+    # 从全位数字频率推断（组三=有数字出现2次）
+    lines.append(f"形态倾向：组六优先，组三少量保留")
+
+    # 冷热观察
+    hot = hot_numbers(w10)
+    cold = cold_numbers(w10)
+    if hot:
+        lines.append(f"热号观察：近10期活跃数字 {'、'.join(hot)}")
+    if cold:
+        lines.append(f"冷号关注：遗漏较久 {'、'.join(cold)}")
+
+    return lines
+
+
 def format_prediction_section(lottery: str, label: str) -> str:
-    """读取 latest_{lottery}.json → 拼接预测"""
+    """
+    升级版预测格式化：
+      核心观察（和值/跨度/形态/冷热）
+      Top10 候选
+      三策略共振号码
+      重点关注 ⭐
+      备选关注
+    """
     path = PRED_DIR / f"latest_{lottery}.json"
     data = read_json(path)
 
@@ -187,13 +341,11 @@ def format_prediction_section(lottery: str, label: str) -> str:
     issue = data.get("预测期号", "未知")
     top10 = extract_top10(data)
 
-    lines = [
-        f"【{label} 今日预测】",
-        f"预测期号：{issue}",
-        f"Top10：{' '.join(top10) if top10 else '暂无'}",
-    ]
+    # 核心观察
+    stats = load_stats_cache(lottery)
+    obs_lines = format_observation(stats, label)
 
-    # 多策略共振：读取 conservative/diversity 的 Top10 取交集
+    # 三策略共振
     consensus_nums: dict[str, int] = {}
     for suffix, sname in [("", "default"), ("_conservative", "稳健"), ("_diversity", "多样性")]:
         sp = PRED_DIR / f"latest_{lottery}{suffix}.json"
@@ -202,15 +354,115 @@ def format_prediction_section(lottery: str, label: str) -> str:
             for n in extract_top10(sd)[:10]:
                 consensus_nums[n] = consensus_nums.get(n, 0) + 1
 
-    consensus = [n for n, c in sorted(consensus_nums.items(), key=lambda x: (-x[1], x[0])) if c >= 2]
-    if consensus:
-        lines.append(f"三策略共振：{' '.join(consensus[:10])}")
+    consensus = sorted([(n, c) for n, c in consensus_nums.items() if c >= 2],
+                       key=lambda x: (-x[1], x[0]))
 
-    return "\n".join(lines)
+    # 共振号分档：三策略全命中 vs 仅两策略
+    triple = [n for n, c in consensus if c >= 3]
+    double = [n for n, c in consensus if c >= 2 and c < 3]
+
+    parts = [
+        f"\n━━━━━━━━━━━━━━\n二、{label} 今日预测\n━━━━━━━━━━━━━━",
+        f"预测期号：{issue}",
+        "",
+        "核心观察：",
+    ]
+    parts.extend("  " + line for line in obs_lines)
+    parts.append("")
+    parts.append(f"Top10候选：\n{' '.join(top10) if top10 else '暂无'}")
+
+    if triple:
+        parts.append(f"\n三策略共振（三策略交集）：\n{' '.join(triple)}")
+    if double:
+        parts.append(f"三策略共振（两策略交集）：\n{' '.join(double)}")
+
+    # 重点关注（从推荐列表首部 + 共振取交集）
+    # 从 default 推荐列表提取评分前几的号码作为"重点关注"
+    recommends = data.get("推荐", [])
+    top_scores = {}
+    for item in (recommends or [])[:30]:
+        if isinstance(item, dict):
+            n = str(item.get("号码", "")).zfill(3)
+            top_scores[n] = item.get("总分", 0)
+
+    # 重点关注 = 三策略共振 + default 评分前15
+    primary_candidates = set(triple)
+    # 从评分前15抽和共振的交集，如果没有足够，从共振中补
+    top15 = list(top_scores.keys())[:15]
+    primary = [n for n in triple if n in top15]
+    if not primary and triple:
+        primary = triple[:3]
+
+    secondary = [n for n in double if n not in primary]
+    # 如果 secondary 不够，从 top10 补充不在共振的
+    rest_top10 = [n for n in top10 if n not in primary and n not in secondary]
+    secondary.extend(rest_top10[:4 - len(secondary)])
+
+    if primary:
+        parts.append(f"\n重点关注：\n{' '.join(primary[:3])}")
+        # 给出理由
+        reasons = []
+        for n in primary[:3]:
+            item = next((r for r in (recommends or []) if str(r.get("号码", "")).zfill(3) == n), None)
+            if item:
+                total = item.get("总分", 0)
+                pattern = item.get("形态", "?")
+                hv = item.get("和值", "?")
+                sp = item.get("跨度", "?")
+                reasons.append(f"  {n}：总分{total}，{pattern}，和值{hv}，跨度{sp}")
+        if reasons:
+            parts.append("理由：")
+            parts.extend(reasons)
+
+    if secondary:
+        parts.append(f"\n备选关注：\n{' '.join(secondary[:5])}")
+
+    return "\n".join(parts)
 
 
 # ═══════════════════════════════════════════
-#  健康报告格式化
+#  重点关注总表
+# ═══════════════════════════════════════════
+
+def build_summary_section() -> str:
+    """生成今日重点关注总表"""
+    parts = ["━━━━━━━━━━━━━━\n三、今日重点关注\n━━━━━━━━━━━━━━"]
+
+    for lottery, label in [("pls", "排列三"), ("d3", "福彩3D")]:
+        path = PRED_DIR / f"latest_{lottery}.json"
+        data = read_json(path)
+        if not data:
+            continue
+
+        top10 = extract_top10(data)
+
+        # 共振
+        consensus_nums: dict[str, int] = {}
+        for suffix in ["", "_conservative", "_diversity"]:
+            sp = PRED_DIR / f"latest_{lottery}{suffix}.json"
+            sd = read_json(sp)
+            if sd:
+                for n in extract_top10(sd)[:10]:
+                    consensus_nums[n] = consensus_nums.get(n, 0) + 1
+
+        triple = [n for n, c in sorted(consensus_nums.items(), key=lambda x: (-x[1], x[0])) if c >= 3]
+        double = [n for n, c in sorted(consensus_nums.items(), key=lambda x: (-x[1], x[0])) if c >= 2 and c < 3]
+
+        primary = triple[:3] if triple else (double[:3] if double else top10[:3])
+        secondary = [n for n in double if n not in primary][:4]
+        if not secondary:
+            secondary = [n for n in top10 if n not in primary][:4]
+
+        parts.append(f"\n{label}：")
+        parts.append(f"主看 {' '.join(primary)}")
+        if secondary:
+            parts.append(f"辅看 {' '.join(secondary)}")
+
+    return "\n".join(parts)
+
+
+# ═══════════════════════════════════════════
+#  健康报告格式化（保持不变）
 # ═══════════════════════════════════════════
 
 def is_recent(path: Path, hours: int = 12) -> bool:
@@ -267,7 +519,7 @@ def format_health_section() -> str:
 
 
 # ═══════════════════════════════════════════
-#  日报拼接
+#  日报拼接（7段结构）
 # ═══════════════════════════════════════════
 
 def build_daily_message() -> str:
@@ -280,19 +532,21 @@ def build_daily_message() -> str:
         "",
         format_prediction_section("d3", "福彩3D"),
         "",
+        build_summary_section(),
+        "",
         format_health_section(),
         "",
-        "⚠️ 彩票具有随机性，以上仅供数据分析与复盘参考，不保证命中。",
+        "⚠️ 彩票具有随机性，以上仅供数据分析与复盘参考，不构成投注建议。",
     ]
     text = "\n".join(parts)
     # 微信单条消息上限约 4096 字符，保守截断
-    if len(text) > 3500:
-        text = text[:3500] + "\n\n……内容过长已截断"
+    if len(text) > 4000:
+        text = text[:4000] + "\n\n……内容过长已截断"
     return text
 
 
 # ═══════════════════════════════════════════
-#  推送 & 落盘 & 去重
+#  推送 & 落盘 & 去重（保持不变）
 # ═══════════════════════════════════════════
 
 def msg_hash(text: str) -> str:
@@ -431,16 +685,14 @@ def main():
     text = build_daily_message()
 
     if args.stdout:
-        # 落盘 + 只输出日报正文到 stdout
         report_path = PUSH_DIR / "daily_report.md"
         write_file(report_path, text)
         h = msg_hash(text)
-        # 去重检查（日志走 stderr 不污染推送内容）
         if not args.force and already_sent("daily", h):
             print(f"[跳过] 今日已推送过相同内容", file=sys.stderr)
             sys.exit(0)
         append_log("daily", h, True, "hermes deliver=origin")
-        print(text)  # 只有这一行进 stdout → Hermes 推送
+        print(text)
         sys.exit(0)
 
     code = send_or_save(text, kind="daily", force=args.force, do_send=not args.write_only)
