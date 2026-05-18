@@ -22,14 +22,23 @@ import pandas as pd
 BASE_DIR = Path(__file__).resolve().parent.parent
 
 
-def load_prediction(lottery, prediction_path=None, strategy='default'):
-    """加载预测 JSON，支持多策略文件"""
+def load_prediction(lottery, prediction_path=None, strategy='default', issue=None):
+    """加载预测 JSON，支持多策略文件。优先按期号查找对应预测。"""
     if prediction_path:
         p = Path(prediction_path)
         path = p if p.is_absolute() else BASE_DIR / p
     else:
         prefix = f'{lottery}_{strategy}' if strategy != 'default' else lottery
-        path = BASE_DIR / 'output' / 'predictions' / f'latest_{prefix}.json'
+        pred_dir = BASE_DIR / 'output' / 'predictions'
+
+        if issue:
+            issue_path = pred_dir / f'{prefix}_predict_{issue}.json'
+            if issue_path.exists():
+                path = issue_path
+            else:
+                path = pred_dir / f'latest_{prefix}.json'
+        else:
+            path = pred_dir / f'latest_{prefix}.json'
 
     if not path.exists():
         print(f"[错误] 预测文件不存在: {path}")
@@ -97,18 +106,41 @@ def compare(predictions, actual):
 
 def build_report(pred_json, actual, rows):
     """生成对比报告"""
-    # 期号不匹配时返回错误标记（不计算命中，不写 review_history）
+    # 期号不匹配时分类处理
     pred_issue = str(pred_json.get('预测期号', ''))
     actual_issue = str(actual['期号'])
     if pred_issue != actual_issue:
-        return {
-            '错误': '预测期号与实际开奖期号不匹配',
-            '预测期号': pred_json.get('预测期号'),
-            '实际期号': actual['期号'],
-            '预测期号匹配': False,
-            '对比时间': datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
-            '彩种': pred_json.get('彩种', ''),
-        }
+        try:
+            pred_num = int(pred_issue)
+            actual_num = int(actual_issue)
+        except (ValueError, TypeError):
+            return {
+                '错误': '期号格式无法解析',
+                '预测期号': pred_json.get('预测期号'),
+                '实际期号': actual['期号'],
+                '预测期号匹配': False,
+                '对比时间': datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
+                '彩种': pred_json.get('彩种', ''),
+            }
+        if pred_num > actual_num:
+            return {
+                '状态': 'waiting_actual',
+                '预测期号': pred_json.get('预测期号'),
+                '实际期号': actual['期号'],
+                '预测期号匹配': False,
+                '对比时间': datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
+                '彩种': pred_json.get('彩种', ''),
+                '说明': '预测期号 > 实际开奖期号，等待数据源更新开奖数据',
+            }
+        else:
+            return {
+                '错误': '缺少对应期号预测文件（预测期号 < 开奖期号）',
+                '预测期号': pred_json.get('预测期号'),
+                '实际期号': actual['期号'],
+                '预测期号匹配': False,
+                '对比时间': datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
+                '彩种': pred_json.get('彩种', ''),
+            }
 
     direct_hit = any(r['直选命中'] for r in rows)
     group_hit = any(r['组选命中'] for r in rows)
@@ -164,6 +196,14 @@ def build_report(pred_json, actual, rows):
 
 def print_report(report):
     """终端打印对比摘要"""
+    if report.get('状态') == 'waiting_actual':
+        print(f"\n{'='*55}")
+        print(f"  ⏳ 等待开奖数据更新")
+        print(f"  预测期号: {report['预测期号']} | 实际期号: {report['实际期号']}")
+        print(f"  {report.get('说明', '')}")
+        print(f"{'='*55}\n")
+        return
+
     if report.get('错误'):
         print(f"\n{'='*55}")
         print(f"  ⚠️  {report['错误']}")
@@ -211,8 +251,9 @@ def print_report(report):
 
 def append_to_history(report, lottery, strategy='default'):
     """将本期复盘追加到长期复盘总表"""
-    if report.get('错误'):
-        print(f"  ⚠️  跳过写入 review_history（{report['错误']}）")
+    if report.get('错误') or report.get('状态') == 'waiting_actual':
+        reason = report.get('错误') or report.get('说明', '等待开奖')
+        print(f"  ⚠️  跳过写入 review_history（{reason}）")
         return
 
     history_dir = BASE_DIR / 'output' / 'reviews'
@@ -262,8 +303,8 @@ def main():
                         help='策略名称（默认default，用于加载对应预测文件）')
     args = parser.parse_args()
 
-    pred_json = load_prediction(args.lottery, args.prediction, args.strategy)
     actual = load_latest_draw(args.lottery)
+    pred_json = load_prediction(args.lottery, args.prediction, args.strategy, issue=str(actual['期号']))
     rows = compare(pred_json.get('推荐', []), actual)
     report = build_report(pred_json, actual, rows)
 
@@ -274,12 +315,25 @@ def main():
     output_dir.mkdir(parents=True, exist_ok=True)
     suffix = f'_{args.strategy}' if args.strategy != 'default' else ''
     output_path = output_dir / f'{args.lottery}_compare{suffix}_latest.json'
+
+    if report.get('状态') == 'waiting_actual':
+        # 写单独文件，不覆盖 latest（保留上次有效对比结果）
+        waiting_path = output_dir / f'{args.lottery}_compare{suffix}_waiting.json'
+        with open(waiting_path, 'w', encoding='utf-8') as f:
+            json.dump(report, f, ensure_ascii=False, indent=2)
+        print(f"  ⏳ 等待开奖: {waiting_path}")
+        sys.exit(0)
+
     with open(output_path, 'w', encoding='utf-8') as f:
         json.dump(report, f, ensure_ascii=False, indent=2)
     print(f"  💾 对比报告: {output_path}")
 
     # 追加到长期复盘总表
     append_to_history(report, args.lottery, args.strategy)
+
+    # 真错误时 exit 1，便于 daily_review 检测失败
+    if report.get('错误'):
+        sys.exit(1)
 
 
 if __name__ == '__main__':

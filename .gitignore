@@ -28,6 +28,7 @@ output/*
 # 推送运行时数据
 output/push/*.jsonl
 output/push/pending_*.md
+!output/push/push_state.json
 
 # 坏数据隔离区
 data/quarantine/

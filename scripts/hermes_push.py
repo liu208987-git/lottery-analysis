@@ -1,21 +1,18 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-Hermes 日报推送脚本（升级版）
-===========================
-GPT 建议 7 段结构：
-  1. 标题
-  2. 昨日复盘（含形态/和值/跨度 + 分策略表现 + 最佳策略 + 一句话结论）
-  3. 排列三今日预测（核心观察 + Top10 + 共振分档 + 重点关注/备选）
-  4. 福彩3D今日预测（同上）
-  5. 今日重点关注（双彩种主/辅看一览）
-  6. 数据源状态（健康报告）
-  7. 风险提示
+Hermes 推送脚本（两段式）
+========================
+  --mode predict : 下午推送今日预测（不含复盘）
+  --mode review  : 晚间推送今日复盘（不含预测）
+  --mode daily   : 旧版混合日报（保留兼容）
 
 用法：
-    python scripts/hermes_push.py --mode daily           # 正常推送
-    python scripts/hermes_push.py --mode daily --force   # 强制补发
-    python scripts/hermes_push.py --mode daily --write-only  # 只生成不推送
+    python scripts/hermes_push.py --mode predict           # 推送预测
+    python scripts/hermes_push.py --mode review            # 推送复盘
+    python scripts/hermes_push.py --mode predict --force   # 强制补发
+    python scripts/hermes_push.py --mode predict --write-only  # 只生成不推送
+    python scripts/hermes_push.py --mode predict --stdout  # stdout模式（Hermes deliver=origin）
 """
 
 import argparse
@@ -539,7 +536,127 @@ def format_health_section() -> str:
 
 
 # ═══════════════════════════════════════════
-#  日报拼接（7段结构）
+#  新版两段式推送
+# ═══════════════════════════════════════════
+
+def check_review_ready() -> tuple[bool, str]:
+    """检查复盘数据是否就绪。返回 (ready, message)。
+    - 有有效复盘记录 → ready=True
+    - compare JSON 标记为 waiting_actual → ready=False
+    - 无任何数据 → ready=False
+    """
+    # 先检查 compare JSON 状态（能区分 waiting vs error）
+    has_valid_compare = False
+    waiting_msgs = []
+    for lottery in ["pls", "d3"]:
+        path = REPORT_DIR / f"{lottery}_compare_latest.json"
+        data = read_json(path)
+        if not data:
+            continue
+        status = data.get("状态", "")
+        error = data.get("错误", "")
+        if status == "waiting_actual":
+            waiting_msgs.append(f"{lottery} {data.get('说明', '')}")
+            continue
+        if not error:
+            has_valid_compare = True
+
+    if waiting_msgs:
+        if not has_valid_compare:
+            return False, f"全部等待开奖（{'; '.join(waiting_msgs)}）"
+        return True, ""
+
+    if has_valid_compare:
+        return True, ""
+
+    # fallback: 检查 review_history 是否有记录
+    rows = read_review_csv()
+    if rows:
+        return True, ""
+
+    return False, "无复盘数据（review_history 为空）"
+
+
+def build_review_performance() -> str:
+    """从 review_history 计算最近策略表现摘要"""
+    rows = read_review_csv()
+    if not rows:
+        return "暂无复盘记录"
+
+    lottery_data: dict[str, dict[str, list]] = {}
+    for row in rows:
+        lotto = row.get("彩种", "")
+        st = row.get("策略", "default")
+        lottery_data.setdefault(lotto, {}).setdefault(st, []).append(row)
+
+    parts = ["━━━━━━━━━━━━━━\n三、近期策略表现\n━━━━━━━━━━━━━━"]
+    label_map = {"default": "标准", "conservative": "稳健", "diversity": "多样性"}
+
+    for lotto in ["排列三", "福彩3D"]:
+        parts.append(f"\n【{lotto}】")
+        for st in ["default", "conservative", "diversity"]:
+            records = lottery_data.get(lotto, {}).get(st, [])
+            if not records:
+                continue
+            recent = records[-30:]
+            total = len(recent)
+            direct_hits = sum(1 for r in recent if parse_bool(r.get("直选命中Top30", "")))
+            group_hits = sum(1 for r in recent if parse_bool(r.get("组选命中Top30", "")))
+            morph_hits = sum(1 for r in recent if parse_bool(r.get("Top1形态一致", "")))
+            sum_errors = [int(r.get("Top1和值误差", 0)) for r in recent]
+            span_errors = [int(r.get("Top1跨度误差", 0)) for r in recent]
+            avg_sum = sum(sum_errors) / total if total else 0
+            avg_span = sum(span_errors) / total if total else 0
+
+            parts.append(
+                f"  {label_map.get(st, st)}（近{total}期）："
+                f"直选{direct_hits}/{total}，组选{group_hits}/{total}，"
+                f"形态{morph_hits}/{total}，均和差{avg_sum:.1f}，均跨差{avg_span:.1f}"
+            )
+
+    return "\n".join(parts)
+
+
+def build_predict_message() -> str:
+    """生成预测推送（不含复盘）"""
+    parts = [
+        f"📊 彩票预测日报｜{today_str()}",
+        "",
+        format_prediction_section("pls", "排列三"),
+        "",
+        format_prediction_section("d3", "福彩3D"),
+        "",
+        build_summary_section(),
+        "",
+        format_health_section(),
+        "",
+        "",
+        "⚠️ 彩票具有随机性，以上仅供数据分析与复盘参考，不构成投注建议。",
+    ]
+    txt = "\n".join(parts)
+    return txt[:4000] + "\n\n……内容过长已截断" if len(txt) > 4000 else txt
+
+
+def build_review_message() -> str:
+    """生成复盘推送（不含预测）"""
+    parts = [
+        f"📊 彩票复盘日报｜{today_str()}",
+        "",
+        format_review_section(),
+        "",
+        build_review_performance(),
+        "",
+        format_health_section(),
+        "",
+        "",
+        "⚠️ 彩票具有随机性，以上仅供数据分析与复盘参考，不构成投注建议。",
+    ]
+    txt = "\n".join(parts)
+    return txt[:4000] + "\n\n……内容过长已截断" if len(txt) > 4000 else txt
+
+
+# ═══════════════════════════════════════════
+#  日报拼接（7段结构，保留兼容）
 # ═══════════════════════════════════════════
 
 def build_daily_message() -> str:
@@ -805,7 +922,10 @@ def send_or_save(text: str, kind: str, force: bool = False, do_send: bool = True
         return 0
 
     if not do_send:
-        print(text)
+        try:
+            print(text)
+        except UnicodeEncodeError:
+            print(text.encode("utf-8", errors="replace").decode("utf-8", errors="replace"))
         append_log(kind, h, True, "write only")
         return 0
 
@@ -833,28 +953,39 @@ def send_or_save(text: str, kind: str, force: bool = False, do_send: bool = True
 # ═══════════════════════════════════════════
 
 def main():
-    parser = argparse.ArgumentParser(description="Hermes 日报推送")
-    parser.add_argument("--mode", choices=["daily"], default="daily")
+    parser = argparse.ArgumentParser(description="Hermes 推送")
+    parser.add_argument("--mode", choices=["daily", "predict", "review"], default="daily")
     parser.add_argument("--write-only", action="store_true", help="只生成不推送")
     parser.add_argument("--force", action="store_true", help="忽略今日去重，强制发送")
     parser.add_argument("--stdout", action="store_true",
-                        help="只输出日报正文到stdout（供Hermes deliver=origin推送），日志走stderr")
+                        help="只输出正文到stdout（供Hermes deliver=origin推送），日志走stderr")
     args = parser.parse_args()
 
-    text = build_daily_message()
+    kind = args.mode
+
+    if args.mode == "predict":
+        text = build_predict_message()
+    elif args.mode == "review":
+        ready, ready_msg = check_review_ready()
+        if not ready:
+            print(f"[跳过] {ready_msg}", file=sys.stderr)
+            sys.exit(0)
+        text = build_review_message()
+    else:
+        text = build_daily_message()
 
     if args.stdout:
-        report_path = PUSH_DIR / "daily_report.md"
+        report_path = PUSH_DIR / f"{kind}_report.md"
         write_file(report_path, text)
         h = msg_hash(text)
-        if not args.force and already_sent("daily", h):
+        if not args.force and already_sent(kind, h):
             print(f"[跳过] 今日已推送过相同内容", file=sys.stderr)
             sys.exit(0)
-        append_log("daily", h, True, "hermes deliver=origin")
+        append_log(kind, h, True, "hermes deliver=origin")
         print(text)
         sys.exit(0)
 
-    code = send_or_save(text, kind="daily", force=args.force, do_send=not args.write_only)
+    code = send_or_save(text, kind=kind, force=args.force, do_send=not args.write_only)
     sys.exit(code)
 
 
