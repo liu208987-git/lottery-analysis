@@ -1,9 +1,9 @@
 {
   "pls": {
     "data": {
-      "issue": "26126",
-      "number": "835",
-      "total_rows": 7601
+      "issue": "26127",
+      "number": "936",
+      "total_rows": 7602
     },
     "sources": {
       "pls_js_lottery": {
@@ -11,7 +11,7 @@
         "cooldown_until": null,
         "cooldown_round": 0,
         "last_status": 200,
-        "last_success": "2026-05-17 07:35:19",
+        "last_success": "2026-05-18 19:29:05",
         "last_failure": null
       },
       "pls_sporttery": {
@@ -26,9 +26,9 @@
   },
   "d3": {
     "data": {
-      "issue": "2026126",
-      "number": "846",
-      "total_rows": 7633
+      "issue": "2026127",
+      "number": "700",
+      "total_rows": 7634
     },
     "sources": {
       "d3_eastmoney": {
@@ -36,7 +36,7 @@
         "cooldown_until": null,
         "cooldown_round": 0,
         "last_status": 200,
-        "last_success": "2026-05-17 07:36:07",
+        "last_success": "2026-05-18 19:29:06",
         "last_failure": null
       },
       "d3_zhcw": {
