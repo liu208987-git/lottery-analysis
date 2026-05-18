@@ -1,7 +1,59 @@
 # Hermes 定时任务配置
 
 > 此文件供 Hermes 读取并自动配置定时任务。修改此文件后，同步至 Hermes 平台生效。
-> 最后更新：2026-05-17（v2.8 数据源修复 + 合并推送架构）
+> 最后更新：2026-05-18（v2.9.6 推送通道拆分 + 微信限频保护）
+
+---
+
+## ══════════════════════════════════════
+## 👇 Hermes 配置清单（直接复制到 Hermes）
+## ══════════════════════════════════════
+
+### 一、环境变量
+
+```
+FEISHU_WEBHOOK_URL = （你的飞书机器人 webhook 地址）
+```
+
+> 飞书是主推送通道，不限频。不配则走 `--stdout` → Hermes `deliver=origin` 路径。
+> 微信 `WECOM_WEBHOOK_URL` 和通用 `HERMES_WEBHOOK_URL` 可选，配了就多通道同时推。
+
+### 二、定时任务（7 个 cron job）
+
+```
+┌────────┬──────────────────────────────────────────────────────────────┬──────────────┐
+│ 时间   │ 命令                                                         │ 失败处理     │
+├────────┼──────────────────────────────────────────────────────────────┼──────────────┤
+│ 17:20  │ python scripts/daily_review.py                               │ 允许失败     │
+│ 17:25  │ python run_daily.py --strategy all --top-k 30                │ 必须成功     │
+│ 17:28  │ python scripts/source_health.py --json                       │ 允许失败     │
+│        │   --output output/reports/source_health.json                 │              │
+│ 17:30  │ python scripts/hermes_push.py --mode daily --stdout          │ 必须成功     │
+│        │   ⚠️ 这个任务 deliver = origin                                │              │
+├────────┼──────────────────────────────────────────────────────────────┼──────────────┤
+│ 21:35  │ python scripts/daily_review.py                               │ 允许失败     │
+│ 22:05  │ python scripts/daily_review.py                               │ 允许失败     │
+│ 23:10  │ python scripts/daily_review.py                               │ 允许失败     │
+└────────┴──────────────────────────────────────────────────────────────┴──────────────┘
+
+所有任务 working directory = lottery-analysis 项目根目录
+前 6 个任务 deliver = local（静默不推送）
+只有 17:30 任务 deliver = origin（推送日报到微信/飞书）
+```
+
+### 三、cron_mode
+
+```
+cron_mode = allow
+```
+
+> `deny` 会拦截所有 terminal 命令，必须设为 `allow`。
+
+---
+
+## ══════════════════════════════════════
+## 👆 以上是需要配置的全部内容
+## ══════════════════════════════════════
 
 ---
 
@@ -188,3 +240,28 @@ python scripts/data_fetcher.py --cb-status
 4. **去重防轰炸** — 同一 hash 的日报同一天不会重复推送
 5. **指数冷却** — sporttery API 连续失败后冷却 2h→6h→12h→24h
 6. **stdout 隔离** — `--stdout` 模式只输出日报正文到 stdout，日志/警告全部走 stderr，确保 Hermes deliver=origin 推送内容干净
+
+---
+
+## 故障恢复
+
+### 推送失败
+
+推送失败时日报已落盘到 `output/push/daily_report.md`，不会丢失。手动补发：
+
+```bash
+python scripts/hermes_push.py --mode daily --force
+```
+
+### Gateway 关闭后恢复
+
+1. 重启 Hermes gateway
+2. 确认 `cron_mode = allow`
+3. 手动补跑当天缺失的关键任务（优先补 17:25 预测 + 17:30 推送）
+4. 不要连续补发多条微信，避免触发限频。间隔至少 5 秒
+
+### 微信限频
+
+`hermes_push.py` 已内置冷却和退避。如果仍然限频：
+- 改用飞书作为主通道（配置 `FEISHU_WEBHOOK_URL`）
+- 或只用 `--stdout` → `deliver=origin` 路径
