@@ -253,6 +253,7 @@ def score_number(row, stats, theory, weights, params):
             else:
                 miss_scores.append(0)
         miss_score = int(sum(miss_scores) / 3 * W['遗漏'])
+        miss_score = max(0, min(miss_score, W['遗漏']))
     else:
         miss_score = W['遗漏'] // 2
     details['遗漏'] = (miss_score, f"均遗={avg_miss}")

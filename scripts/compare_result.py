@@ -240,6 +240,17 @@ def main():
 
     pred_json = load_prediction(args.lottery, args.prediction, args.strategy)
     actual = load_latest_draw(args.lottery)
+
+    # 期号不匹配硬拦截
+    pred_issue = pred_json.get('预测期号', '')
+    actual_issue = actual['期号']
+    if str(pred_issue) != str(actual_issue):
+        print(f"[错误] 预测期号与实际开奖期号不匹配，停止复盘", file=sys.stderr)
+        print(f"  预测期号: {pred_issue}", file=sys.stderr)
+        print(f"  实际期号: {actual_issue}", file=sys.stderr)
+        print(f"  建议: 先重新运行 run_daily.py 生成对应期号预测", file=sys.stderr)
+        sys.exit(1)
+
     rows = compare(pred_json.get('推荐', []), actual)
     report = build_report(pred_json, actual, rows)
 
