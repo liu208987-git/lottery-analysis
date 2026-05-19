@@ -638,21 +638,85 @@ def build_predict_message() -> str:
 
 
 def build_review_message() -> str:
-    """生成复盘推送（不含预测）"""
+    """生成复盘推送：今日预测 vs 今日开奖直接对比"""
     parts = [
-        f"📊 彩票复盘日报｜{today_str()}",
+        f"📊 今日预测 vs 开奖对比｜{today_str()}",
         "",
-        format_review_section(),
-        "",
-        build_review_performance(),
-        "",
-        format_health_section(),
-        "",
-        "",
-        "⚠️ 彩票具有随机性，以上仅供数据分析与复盘参考，不构成投注建议。",
     ]
+
+    # 从 review_history 获取最新一期（今日开奖）的对比数据
+    rows = pick_latest_review(read_review_csv())
+    if not rows:
+        parts.append("暂无复盘数据")
+        return "\n".join(parts)
+
+    # 按彩种分组获取今日实际开奖和命中情况
+    grouped: dict[str, list] = {}
+    for row in rows:
+        lotto = row.get("彩种", "未知")
+        grouped.setdefault(lotto, []).append(row)
+
+    for lotto in ["排列三", "福彩3D"]:
+        items = grouped.get(lotto, [])
+        if not items:
+            continue
+        actual = items[0].get("开奖号码", "未知")
+        issue = items[0].get("期号", "未知")
+        pattern = calc_pattern(actual)
+        total = calc_sum(actual)
+        span = calc_span(actual)
+
+        parts.append("━━━━━━━━━━━━━━")
+        parts.append(f"{lotto} {issue}")
+        parts.append("━━━━━━━━━━━━━━")
+        parts.append(f"开奖号码：{actual}（{pattern}｜和值{total}｜跨度{span}）")
+        parts.append("")
+
+        lottery_key = "pls" if lotto == "排列三" else "d3"
+
+        # 各策略对比
+        for st_key, label in [("default", "默认"), ("conservative", "稳健"), ("diversity", "多样性")]:
+            item = next((r for r in items if r.get("策略", "") == st_key), None)
+            if not item:
+                continue
+
+            # 从预测文件取Top5
+            st_data = read_json(PRED_DIR / f"latest_{lottery_key}_{st_key}.json") if st_key != "default" else read_json(PRED_DIR / f"latest_{lottery_key}.json")
+            top10 = extract_top10(st_data) if st_data else []
+            top5_str = " ".join(top10[:5]) if top10 else "-"
+
+            direct_hit = parse_bool(item.get("直选命中Top30", ""))
+            group_hit = parse_bool(item.get("组选命中Top30", ""))
+            sum_err = int(item.get("Top1和值误差", 99))
+            span_err = int(item.get("Top1跨度误差", 99))
+            form_ok = parse_bool(item.get("Top1形态一致", ""))
+
+            if direct_hit:
+                result_icon = "🎯"
+                result_text = "直选命中！"
+            elif group_hit:
+                result_icon = "✅"
+                result_text = "组选命中"
+            else:
+                result_icon = "❌"
+                result_text = "未命中"
+
+            parts.append(f"{result_icon} {label}：{result_text}")
+            parts.append(f"  Top5：{top5_str}")
+            parts.append(f"  和值差{sum_err}｜跨度差{span_err}｜形态{'一致' if form_ok else '不一致'}")
+            parts.append("")
+
+    # 近期表现
+    parts.append(build_review_performance())
+    parts.append("")
+    parts.append(format_health_section())
+    parts.append("")
+    parts.append("⚠️ 彩票具有随机性，以上仅供数据分析与复盘参考，不构成投注建议。")
+
     txt = "\n".join(parts)
-    return txt[:4000] + "\n\n……内容过长已截断" if len(txt) > 4000 else txt
+    if len(txt) > 4000:
+        txt = txt[:4000] + "\n\n……内容过长已截断"
+    return txt
 
 
 # ═══════════════════════════════════════════
