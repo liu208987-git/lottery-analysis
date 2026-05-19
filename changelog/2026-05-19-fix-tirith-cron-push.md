@@ -40,7 +40,28 @@ cron 环境无用户在线审批，agent 尝试了所有变通方法（直接路
 - ✅ 原有去重、落盘逻辑不变（在 hermes_push.py 内部）
 - ✅ 无需升级系统 glibc（风险高）
 
-### 备注
+### 关于 Linux crontab 替代方案的讨论
 
-- `hermes_push.py` 中 `push_to_all_channels()` 的 `return results` 缩进正确（在 for 循环外），GPT 的缩进 bug 报告为误判。
-- 14:30 生成预测（`run_daily.py`）和 14:35 数据源健康（`source_health.py`）仍为 agent 模式——前者需要推理判断（正常执行），后者允许失败。
+GPT 建议将 cron 任务从 Hermes  cron 改为 Linux crontab 直接执行：
+```
+0 15 * * * cd /path && python run_daily.py && python scripts/hermes_push.py --mode predict >> logs/predict_push.log 2>&1
+30 22 * * * cd /path && python scripts/daily_review.py && python scripts/hermes_push.py --mode review >> logs/review_push.log 2>&1
+```
+
+**决定：不采纳。理由如下：**
+
+1. **Hermes cron no_agent 已等效绕过审批链** — no_agent 模式让脚本直接运行并输出 stdout，由 Hermes cron 原样交付到飞书，完全没有安全审批拦截问题，与 crontab 的链路一样短。
+2. **Hermes cron 的优势无法替代**：
+   - 交付路由到飞书 WebSocket 网关（无需配置 webhook URL）
+   - 内建去重和三波补偿策略（21:35/22:05/23:10）
+   - 统一管理界面（`cronjob list/run/pause/resume`）
+   - 不消耗 API token（无大模型调用）
+3. **crontab 方案额外维护成本**：需要自己维护日志轮转、失败告警、去重状态。
+4. `push_to_all_channels()` 的 `return results` 缩进正确（第 887 行，与 `save_push_state` 同级在 for 循环外），GPT 的缩进 bug 报告经实码确认属于误判。
+
+综上，保持 Hermes cron no_agent 方案为最终方案。
+
+### 同期仍为 agent 模式的任务
+
+- 14:30 生成预测（`run_daily.py`）— 需要 agent 推理判断，正常执行
+- 14:35 数据源健康（`source_health.py`）— 允许失败，不影响主链路
