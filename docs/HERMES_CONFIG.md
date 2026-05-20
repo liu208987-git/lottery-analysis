@@ -1,7 +1,7 @@
 # Hermes 定时任务配置
 
 > 此文件供 Hermes 读取并自动配置定时任务。修改此文件后，同步至 Hermes 平台生效。
-> 最后更新：2026-05-20（v2.11.0 推送链路加固：lottery_predict_push.sh 内全流程自闭环）
+> 最后更新：2026-05-20（v2.11.1：review_push.sh 改为自闭环 + cron 命令改为调用 .sh 脚本）
 
 ---
 
@@ -25,12 +25,10 @@ cron_mode = allow
 
 ### 三、定时任务（6 个，替换旧的 7 个）
 
-> 所有任务 working_directory = 项目根目录
-> cd 路径根据 Hermes 实际环境替换
-|> ⚠️ 14:30 和 14:35 为辅助预生成，即使失败也不影响 14:40 推送
->    因为 14:40 的推送脚本（lottery_predict_push.sh）内部自动执行 run_daily → source_health → hermes_push --mode predict --stdout --force
->    注意：实际环境中，14:40 任务配置为 no_agent=true，通过 Hermes cron 的 script 字段指向 ~/.hermes/scripts/lottery_predict_push.sh，不经过 agent 审批链。
->    以下 command 中的路径仅为文档示意，实际执行入口以 ~/.hermes/scripts/ 下的脚本为准。
+> 所有任务 working_directory = 项目根目录（/home/admin/bendi/lottery-analysis）
+> 14:30 和 14:35 为辅助预生成，即使失败也不影响 14:40 推送
+> 14:40 推送任务为 no_agent=true 模式，绕过安全审批链
+> 晚间复盘任务同样 no_agent=true，脚本内部始终重新生成，不 cat 旧文件
 
 ```
 # ── 下午预测链路（14:30 → 14:35 → 14:40）──
@@ -51,37 +49,37 @@ description = 生成数据源健康报告
 
 [task-predict-push]
 cron = 40 14 * * *
-command = # no_agent 模式，通过 lottery_predict_push.sh 脚本执行
-         # 脚本内部自动执行：run_daily → source_health → hermes_push --mode predict
-         # 即使 14:30 预测未生成也不影响推送
-on_failure = continue
+command = cd /home/admin/bendi/lottery-analysis && bash scripts/push/lottery_predict_push.sh
+on_failure = stop
 deliver = origin
-description = 推送今日预测到飞书（自闭环：自动重新跑预测再推送）
+no_agent = true
+description = 自闭环预测推送：重新跑run_daily→source_health→hermes_push --force
 
 # ── 晚间复盘链路（21:35 / 22:05 / 23:10 三波补偿）──
 
 [task-review-2135]
 cron = 35 21 * * *
-command = # no_agent 模式，通过 lottery_review_push.sh 脚本执行
-         # 脚本内部：daily_review.py && hermes_push.py --mode review --stdout
-         # push_state.json 自动防重，不加 --force
+command = cd /home/admin/bendi/lottery-analysis && bash scripts/push/lottery_review_push.sh
 on_failure = continue
 deliver = origin
-description = 初次复盘+推送（开奖后35分钟）
+no_agent = true
+description = 自闭环复盘推送：重新跑daily_review→hermes_push（push_state 防重）
 
 [task-review-2205]
 cron = 05 22 * * *
-command = # 同上，push_state.json 自动防重
+command = cd /home/admin/bendi/lottery-analysis && bash scripts/push/lottery_review_push.sh
 on_failure = continue
 deliver = origin
-description = 补偿复盘+推送（开奖后65分钟，push_state.json 自动防重）
+no_agent = true
+description = 补偿复盘推送（push_state 自动去重）
 
 [task-review-2310]
 cron = 10 23 * * *
-command = # 同上，push_state.json 自动防重
+command = cd /home/admin/bendi/lottery-analysis && bash scripts/push/lottery_review_push.sh
 on_failure = continue
 deliver = origin
-description = 最后兜底复盘+推送（push_state.json 自动防重）
+no_agent = true
+description = 最后兜底复盘推送（push_state 自动去重）
 ```
 
 ---
