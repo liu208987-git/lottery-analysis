@@ -885,6 +885,50 @@ def already_sent(kind: str, h: str) -> bool:
     return False
 
 
+_LOCK_DIR = BASE / "output" / ".push_locks"
+_LOCK_DIR.mkdir(parents=True, exist_ok=True)
+
+
+def _push_lock(kind: str, h: str) -> str:
+    """简易文件锁，防止并发重复推送。返回锁文件路径。"""
+    os.makedirs(str(_LOCK_DIR), exist_ok=True)
+    lock_path = _LOCK_DIR / f"{kind}_{h}.lock"
+    return str(lock_path)
+
+
+def acquire_push_lock(kind: str, h: str, timeout: float = 3.0) -> bool:
+    """获取推送锁，成功返回 True，超时返回 False。"""
+    lock_file = _push_lock(kind, h)
+    deadline = time.time() + timeout
+    while time.time() < deadline:
+        try:
+            fd = os.open(lock_file, os.O_CREAT | os.O_EXCL | os.O_WRONLY)
+            with os.fdopen(fd, "w") as f:
+                f.write(f"{kind}/{h} locked by pid {os.getpid()}\n")
+            return True
+        except FileExistsError:
+            # 检查锁是否过期（超时后强制获取）
+            if time.time() > deadline - 2:
+                try:
+                    mtime = os.path.getmtime(lock_file)
+                    if time.time() - mtime > timeout:
+                        os.unlink(lock_file)
+                        continue
+                except OSError:
+                    pass
+            time.sleep(0.2)
+    return False
+
+
+def release_push_lock(kind: str, h: str):
+    """释放推送锁。"""
+    lock_file = _push_lock(kind, h)
+    try:
+        os.unlink(lock_file)
+    except OSError:
+        pass
+
+
 def append_log(kind: str, h: str, ok: bool, detail: str = ""):
     log_path = PUSH_DIR / "send_log.jsonl"
     item = {
@@ -898,6 +942,8 @@ def append_log(kind: str, h: str, ok: bool, detail: str = ""):
     try:
         with log_path.open("a", encoding="utf-8") as f:
             f.write(json.dumps(item, ensure_ascii=False) + "\n")
+            f.flush()
+            os.fsync(f.fileno())
     except Exception as e:
         print(f"[WARN] 写入发送日志失败: {e}")
 
@@ -1147,11 +1193,24 @@ def main():
         report_path = PUSH_DIR / f"{kind}_report.md"
         write_file(report_path, text)
         h = msg_hash(text)
+        # 加锁防止并发重复推送
         if not args.force and already_sent(kind, h):
             print(f"[跳过] 今日已推送过相同内容", file=sys.stderr)
             sys.exit(0)
-        append_log(kind, h, True, "hermes deliver=origin")
-        print(text)
+        if not acquire_push_lock(kind, h, timeout=5.0):
+            print(f"[跳过] 推送锁获取失败（可能正在推送中）", file=sys.stderr)
+            sys.exit(0)
+        try:
+            # 再次检查（持有锁后二次确认）
+            if not args.force and already_sent(kind, h):
+                print(f"[跳过] 二次检查已推送过", file=sys.stderr)
+                sys.exit(0)
+            # 日志包含内容长度和预览摘要
+            preview = text.replace("\n", "\\n")[:60]
+            append_log(kind, h, True, f"hermes deliver=origin | len={len(text)} | preview={preview}")
+            print(text)
+        finally:
+            release_push_lock(kind, h)
         sys.exit(0)
 
     code = send_or_save(text, kind=kind, force=args.force, do_send=not args.write_only)
