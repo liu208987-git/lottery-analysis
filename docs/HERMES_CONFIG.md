@@ -1,7 +1,7 @@
 # Hermes 定时任务配置
 
 > 此文件供 Hermes 读取并自动配置定时任务。修改此文件后，同步至 Hermes 平台生效。
-> 最后更新：2026-05-20（v2.12.1：KL8奖金表修正 + 健康检查完善 + 全量逐行审查通过）
+> 最后更新：2026-05-21（v2.13.0：晚间复盘两段式推送 + 双彩种完整性闸门 + 文件锁优化）
 
 ---
 
@@ -63,7 +63,7 @@ command = cd /home/admin/bendi/lottery-analysis && bash scripts/push/lottery_rev
 on_failure = continue
 deliver = origin
 no_agent = true
-description = 自闭环复盘推送：重新跑daily_review→hermes_push（push_state 防重）
+description = 复盘尝试1：两彩种齐全才推送，未齐静默（send_log+文件锁防重）
 
 [task-review-2205]
 cron = 05 22 * * *
@@ -71,15 +71,15 @@ command = cd /home/admin/bendi/lottery-analysis && bash scripts/push/lottery_rev
 on_failure = continue
 deliver = origin
 no_agent = true
-description = 补偿复盘推送（push_state 自动去重）
+description = 复盘尝试2：两彩种齐全才推送，未齐静默（send_log+文件锁防重）
 
 [task-review-2310]
 cron = 10 23 * * *
-command = cd /home/admin/bendi/lottery-analysis && bash scripts/push/lottery_review_push.sh
+command = cd /home/admin/bendi/lottery-analysis && bash scripts/push/lottery_review_push.sh --final
 on_failure = continue
 deliver = origin
 no_agent = true
-description = 最后兜底复盘推送（push_state 自动去重）
+description = 复盘兜底：齐全推完整复盘，未齐推无法复盘通知
 
 # ── 快乐8 KL8（14:30 预测 + 21:35 复盘）──
 
@@ -147,10 +147,10 @@ Hermes 执行环境需配置以下变量：
 
 晚上（21:35 / 22:05 / 23:10）：复盘推送
   ├── daily_review → 拉取开奖 + 特征 + compare_result
-  └── hermes_push --mode review → 只含复盘数据，不含预测
-      ├── 数据源未更新 → 自动跳过不推送
-      ├── 复盘成功 + 未推送过 → 推送
-      └── 已推送过 → 自动去重跳过
+  └── hermes_push --mode review → 两彩种齐全才推送
+      ├── --complete-only (21:35/22:05): 未齐静默跳过
+      ├── --final-check (23:10): 未齐推送兜底通知
+      └── send_log + 文件锁 防重复推送
 
 快乐8（独立模块）：
   14:30 → fetcher + predictor + stats（数据+预测+统计）
@@ -165,7 +165,7 @@ Hermes 执行环境需配置以下变量：
 - 下午调早到 14:30，让你提前看到预测
 - 预测和复盘分开推送，不再混在同一条消息里
 - 期号不再出现 "预测 26128 复盘 26127" 的混淆
-- 晚间三波复盘自带防重复（push_state.json），不会重复轰炸
+- 晚间三波复盘自带防重复（send_log.jsonl + 文件锁），不会重复轰炸
 
 ---
 
@@ -208,39 +208,36 @@ deliver: origin  ← 关键！
 
 > 三段式补偿：数据源通常在 21:00 开奖后 20-30 分钟更新，三波覆盖延迟场景。
 > 每波都跑 `daily_review.py && hermes_push.py --mode review`。
-> **防重复**：`push_state.json` 记录每期推送状态，同一期只推送一次。
+> **防重复**：`send_log.jsonl` + 文件锁 记录每期推送状态，同一期只推送一次。
 
-#### 任务 4 — 21:35 初次复盘+推送
+#### 任务 4 — 21:35 复盘尝试
 
 ```
 时间: 21:35
-命令: python scripts/daily_review.py && python scripts/hermes_push.py --mode review --stdout
+命令: bash scripts/push/lottery_review_push.sh（内部 --complete-only）
 失败处理: 允许失败
 deliver: origin
-说明: 开奖后 35 分钟，大多数源已更新
-      若数据源未更新 → compare_result 状态=waiting_actual → 跳过推送
-      若复盘成功且该期未推送过 → 推送复盘
+说明: 开奖后 35 分钟，两彩种齐全才推送复盘，未齐静默等待下一波
 ```
 
-#### 任务 5 — 22:05 补偿复盘
+#### 任务 5 — 22:05 复盘尝试
 
 ```
 时间: 22:05
-命令: python scripts/daily_review.py && python scripts/hermes_push.py --mode review --stdout
+命令: bash scripts/push/lottery_review_push.sh（内部 --complete-only）
 失败处理: 允许失败
 deliver: origin
-说明: 距开奖 65 分钟，兜底延迟数据源
-      若 21:35 已推送 → push_state.json 命中 → 自动跳过
+说明: 距开奖 65 分钟，两彩种齐全才推送。若 21:35 已推送则 skip
 ```
 
-#### 任务 6 — 23:10 最后兜底
+#### 任务 6 — 23:10 复盘兜底
 
 ```
 时间: 23:10
-命令: python scripts/daily_review.py && python scripts/hermes_push.py --mode review --stdout
+命令: bash scripts/push/lottery_review_push.sh --final（内部 --final-check）
 失败处理: 允许失败
 deliver: origin
-说明: 最终补偿。若仍未更新，数据永久缺失（次日可回填）
+说明: 最终兜底。齐全推完整复盘，未齐推"无法完成复盘"通知
 ```
 
 ---
@@ -361,7 +358,7 @@ python scripts/data_fetcher.py --cb-status
 
 1. **两段式推送** — 预测单独推，复盘单独推，期号语义清晰无混淆
 2. **预测按期号归档** — `*_predict_{issue}.json` 持久化，复盘按实开期号查找对应预测
-3. **防重复推送** — `push_state.json` 记录每期推送状态，多轮 cron 不重复轰炸
+3. **防重复推送** — `send_log.jsonl` + 文件锁 记录每期推送状态，多轮 cron 不重复轰炸（`push_state.json` 仅用于直接 webhook 路径）
 4. **失败隔离** — 复盘失败不阻塞预测，健康报告失败不阻塞推送
 5. **落盘优先** — 先写 `*_report.md` 再推送，推送失败内容不丢
 6. **指数冷却** — sporttery API 连续失败后冷却 2h→6h→12h→24h

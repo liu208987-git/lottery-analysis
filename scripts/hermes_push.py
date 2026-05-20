@@ -565,9 +565,7 @@ def check_review_ready() -> tuple[bool, str]:
             has_valid_compare = True
 
     if waiting_msgs:
-        if not has_valid_compare:
-            return False, f"全部等待开奖（{'; '.join(waiting_msgs)}）"
-        return True, ""
+        return False, f"等待开奖数据（{'; '.join(waiting_msgs)}）"
 
     if has_valid_compare:
         return True, ""
@@ -896,8 +894,9 @@ def _push_lock(kind: str, h: str) -> str:
     return str(lock_path)
 
 
-def acquire_push_lock(kind: str, h: str, timeout: float = 3.0) -> bool:
-    """获取推送锁，成功返回 True，超时返回 False。"""
+def acquire_push_lock(kind: str, h: str, timeout: float = 5.0,
+                      stale_after: float = 600.0) -> bool:
+    """获取推送锁。timeout=最大等待秒数，stale_after=锁文件超过多久视为残留。"""
     lock_file = _push_lock(kind, h)
     deadline = time.time() + timeout
     while time.time() < deadline:
@@ -907,15 +906,13 @@ def acquire_push_lock(kind: str, h: str, timeout: float = 3.0) -> bool:
                 f.write(f"{kind}/{h} locked by pid {os.getpid()}\n")
             return True
         except FileExistsError:
-            # 检查锁是否过期（超时后强制获取）
-            if time.time() > deadline - 2:
-                try:
-                    mtime = os.path.getmtime(lock_file)
-                    if time.time() - mtime > timeout:
-                        os.unlink(lock_file)
-                        continue
-                except OSError:
-                    pass
+            try:
+                mtime = os.path.getmtime(lock_file)
+                if time.time() - mtime > stale_after:
+                    os.unlink(lock_file)
+                    continue
+            except OSError:
+                pass
             time.sleep(0.2)
     return False
 
@@ -1163,6 +1160,10 @@ def main():
     parser.add_argument("--force", action="store_true", help="忽略今日去重，强制发送")
     parser.add_argument("--stdout", action="store_true",
                         help="只输出正文到stdout（供Hermes deliver=origin推送），日志走stderr")
+    parser.add_argument("--complete-only", action="store_true",
+                        help="复盘：两彩种都齐全才输出（21:35/22:05用）")
+    parser.add_argument("--final-check", action="store_true",
+                        help="复盘：未齐输出兜底通知（23:10用）")
     args = parser.parse_args()
 
     lottery = args.lottery
@@ -1181,6 +1182,11 @@ def main():
         elif lottery in ("pls", "d3", "all"):
             ready, ready_msg = check_review_ready()
             if not ready:
+                if args.final_check:
+                    text = f"⚠️ 无法完成复盘\n\n{ready_msg}\n\n请检查数据源是否正常更新。"
+                    if args.stdout:
+                        print(text)
+                    sys.exit(0)
                 print(f"[跳过] {ready_msg}", file=sys.stderr)
                 sys.exit(0)
             text = build_review_message()
@@ -1190,6 +1196,9 @@ def main():
         text = build_daily_message()
 
     if args.stdout:
+        if not text.strip():
+            print(f"[跳过] 无推送内容（{kind}）", file=sys.stderr)
+            sys.exit(0)
         report_path = PUSH_DIR / f"{kind}_report.md"
         write_file(report_path, text)
         h = msg_hash(text)

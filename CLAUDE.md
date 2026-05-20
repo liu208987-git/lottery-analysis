@@ -246,6 +246,14 @@ review_summary.py → 终端表现摘要
 10. **快乐8独立模块不接入主流程**：`scripts/kl8/` 7个文件（fetcher/predictor/reviewer/check/metrics/stats/strategy），热号+冷号策略 + 选四主推 + 盈亏复盘 + 累计表现，与 PLS/D3 互不干扰。多策略框架已就绪，待 ≥30 天数据后回测评估
 11. **号码始终当字符串**：防止前导零丢失（040→40）
 
+## 未解决问题
+
+> 以下为已知但暂不致命的问题。解决后打 ✅。
+
+- [ ] **js-lottery 排列三主源持续 fallback** — fallback 路径仅解析 10 条，影响历史数据完整性。建议采集失败响应样本到 `logs/source_samples/`
+- [ ] **21:35/22:05 推送记录缺失无法回溯** — send_log.jsonl 不会回溯写入历史记录，仅从 2026-05-20 23:31 修复后开始记录 len+preview
+- [ ] **push_state.json 不存在** — `--stdout + deliver=origin` 模式不创建 push_state.json（预期行为），该模式去重靠 send_log.jsonl + 文件锁
+
 ## 文件编码
 
 所有 CSV/JSON/YAML 统一使用 UTF-8-sig（Windows 兼容）。Python open() 必须显式指定 encoding='utf-8' 或 'utf-8-sig'。
