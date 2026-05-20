@@ -308,7 +308,8 @@ python scripts/hermes_push.py --mode review --lottery kl8
 
 ## 更新日志
 
-- **v2.11.0** (2026-05-20)：新增快乐8(KL8)独立模块——kl8_fetcher 官方API数据抓取、kl8_predictor 热12+冷8候选池、kl8_reviewer 交集复盘、hermes_push --lottery kl8 推送；feature/kl8 分支隔离开发
+- **v2.12.1** (2026-05-20)：KL8全量逐行审查通过——奖金表修正(中二=3元)、check/metrics/stats/strategy 4个增强模块、全链路健康检查、累计表现追踪、多策略框架就绪
+- **v2.11.0** (2026-05-20)：新增快乐8(KL8)独立模块——kl8_fetcher 官方API数据抓取、kl8_predictor 热12+冷8候选池、kl8_reviewer 选修命中+盈亏复盘、hermes_push --lottery kl8 推送；feature/kl8 分支隔离开发
 - **v2.10.3** (2026-05-20)：复盘字段对齐——review_history 新增命中范围/命中号码/命中排名/Top5直选/Top5组选 5 个字段；hermes_push 复盘按实开期号读 `*_predict_{issue}.json` 而非 latest；命中时展示具体号码+排名+范围，Top5 标注为"参考"
 - **v2.10.2** (2026-05-20)：14:40 推送自闭环——lottery_predict_push.sh 内部自动执行 run_daily → source_health → hermes_push 全流程，不再依赖 14:30 预生成；推送加 `--force` 避免去重误拦截；推送脚本纳入版本控制（`scripts/push/`）；文档同步 no_agent 审批说明
 - **v2.10.1** (2026-05-19)：推送链路加固——推送类 cron 改为 no_agent 模式绕过 Tirith glibc 兼容问题；lottery_predict_push.sh / lottery_review_push.sh 脚本化；HERMES_CONFIG.md 同步 no_agent 配置；详细讨论见 `changelog/2026-05-19-fix-tirith-cron-push.md`
