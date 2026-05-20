@@ -14,6 +14,29 @@ OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
 
 CN_TZ = timezone(timedelta(hours=8))
 
+HISTORY_FIELDNAMES = [
+    "日期", "期号", "策略", "玩法", "推荐号码", "开奖号码",
+    "命中数", "命中号码", "结果", "奖金", "成本", "盈亏", "池命中", "复盘时间",
+]
+
+
+def find_actual_by_issue(target_issue: str) -> dict | None:
+    """在 history.csv 中按期号精确查找开奖数据"""
+    p = DATA_DIR / "kl8_history.csv"
+    if not p.exists():
+        return None
+    with open(p, encoding="utf-8-sig", newline="") as f:
+        for row in csv.DictReader(f):
+            if row["issue"] == target_issue:
+                return {
+                    "lottery": "kl8",
+                    "issue": row["issue"],
+                    "date": row["date"],
+                    "numbers": [int(x) for x in row["numbers"].split()],
+                }
+    return None
+
+
 # 选四奖级表：命中数 → 奖金(元)
 PLAY4_PRIZES = {4: 100, 3: 5, 2: 0, 1: 0, 0: 0}
 COST_PER_BET = 2
@@ -94,17 +117,23 @@ def append_review_history(data: dict) -> Path:
         "池命中": str(data["pool_hit_count"]),
         "复盘时间": data["reviewed_at"],
     }
-    fieldnames = list(row.keys())
+    # 清理旧格式记录（无'结果'等新字段），用字段黑名单
     existed = []
     if p.exists():
         with open(p, encoding="utf-8-sig", newline="") as f:
-            existed = list(csv.DictReader(f))
+            reader = csv.DictReader(f)
+            old_fieldnames = reader.fieldnames or []
+            for r in reader:
+                # 跳过旧格式记录：缺少 "结果" 字段的视为废弃
+                if "结果" not in old_fieldnames or "结果" not in r:
+                    continue
+                existed.append(r)
     existed = [r for r in existed
-               if not (r["期号"] == row["期号"] and r["策略"] == row["策略"])]
+               if not (r.get("期号") == row["期号"] and r.get("策略") == row["策略"])]
     existed.append(row)
-    existed.sort(key=lambda r: r["期号"], reverse=True)
+    existed.sort(key=lambda r: r.get("期号", ""), reverse=True)
     with open(p, "w", encoding="utf-8-sig", newline="") as f:
-        w = csv.DictWriter(f, fieldnames=fieldnames)
+        w = csv.DictWriter(f, fieldnames=list(row.keys()))
         w.writeheader()
         w.writerows(existed)
     return p
@@ -125,14 +154,18 @@ def main():
 
     pred = json.loads(pred_path.read_text(encoding="utf-8"))
 
-    # 按预测期号查找对应开奖
+    # 按预测期号精确查找对应开奖（优先 history.csv，回退 latest.json）
     target_issue = pred.get("predicted_issue", "")
-    actual = None
-    if actual_path.exists():
-        actual = json.loads(actual_path.read_text(encoding="utf-8"))
-    # 如果实际开奖期号≠预测期号，等待更新
-    if not actual or actual.get("issue") != target_issue:
-        print(f"⏳ 等待开奖数据更新（预测{target_issue}，最新{actual.get('issue','?') if actual else '?'}）")
+    actual = find_actual_by_issue(target_issue)
+    if not actual and actual_path.exists():
+        actual_latest = json.loads(actual_path.read_text(encoding="utf-8"))
+        if actual_latest.get("issue") == target_issue:
+            actual = actual_latest
+
+    if not actual:
+        latest_info = json.loads(actual_path.read_text(encoding="utf-8")) if actual_path.exists() else None
+        print(f"⏳ 等待开奖数据更新（预测{target_issue}，"
+              f"最新{latest_info.get('issue','?') if latest_info else '?'}）")
         sys.exit(0)
 
     data = review(pred, actual)

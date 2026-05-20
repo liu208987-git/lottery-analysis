@@ -98,7 +98,6 @@ def save_latest(row: dict) -> Path:
 
 def check_integrity() -> list[str]:
     """数据完整性检查：扫描历史CSV，返回问题列表"""
-    issues = []
     p = DATA_DIR / "kl8_history.csv"
     if not p.exists():
         return ["kl8_history.csv 不存在"]
@@ -106,24 +105,24 @@ def check_integrity() -> list[str]:
         rows = list(csv.DictReader(f))
     if not rows:
         return ["kl8_history.csv 为空"]
-    issues_set = set()
-    dates = []
-    for i, r in enumerate(rows):
+    warnings = []
+    seen_issues = set()
+    for r in rows:
         issue = r.get("issue", "")
         nums_str = r.get("numbers", "")
-        nums = [int(x) for x in nums_str.split()]
+        nums = [int(x) for x in nums_str.split()] if nums_str.strip() else []
         try:
             validate(nums)
         except ValueError as e:
-            issues_set.add(f"期号{issue}数据异常: {e}")
-        issues_set.add(issue)
-        dates.append(r.get("date", ""))
-    # 检查是否有重复期号（除第一个外，每行issue应唯一）
-    # 检查期号连续性
-    sorted_issues = sorted(issues_set, reverse=True)
+            warnings.append(f"期号{issue}数据异常: {e}")
+        if issue in seen_issues:
+            warnings.append(f"重复期号: {issue}")
+        seen_issues.add(issue)
+
+    sorted_issues = sorted(seen_issues, reverse=True)
     print(f"  📋 {len(sorted_issues)} 期数据，范围 {sorted_issues[-1]} ~ {sorted_issues[0]}")
-    warnings = []
-    # 简单缺期检测
+
+    # 缺期检测
     if len(sorted_issues) >= 2:
         try:
             first = int(sorted_issues[0])
