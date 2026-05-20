@@ -2,7 +2,7 @@
 
 ## 项目概述
 
-排列三 + 福彩3D 彩票数据分析与评分预测系统。核心思路：基于多窗口统计 + 理论分布 + 动态评分引擎，对 000-999 全部 1000 注号码多维度打分排序，输出 Top-K 候选。
+排列三 + 福彩3D + 快乐8 彩票数据分析与评分预测系统。核心思路：基于多窗口统计 + 理论分布 + 动态评分引擎，对候选号码打分排序，输出 Top-K 候选。
 
 > 彩票开奖完全随机，本项目仅供学习研究。所有分析仅基于历史统计，不代表未来结果。
 
@@ -40,6 +40,17 @@
 > `hermes_push.py --mode review` 只读 review_history + compare JSON，不含预测。compare_result 返回 `waiting_actual` 时跳过推送不报错。
 > 推送失败时内容落盘 `output/push/pending_*_report.md`，可手动 `--force` 补发。
 
+### 快乐8候选池链路（14:30 预测 / 21:35 复盘）
+
+| 时间 | 命令 | 说明 |
+|------|------|------|
+| 14:30 | `python scripts/kl8_fetcher.py && python scripts/kl8_predictor.py` | 拉取历史开奖 → 生成20码候选池 |
+| 14:40 | `python scripts/hermes_push.py --mode predict --lottery kl8 --stdout` | 推送快乐8预测 |
+| 21:35 | `python scripts/kl8_fetcher.py && python scripts/kl8_reviewer.py` | 拉最新开奖 → 复盘命中数 |
+| 21:35 | `python scripts/hermes_push.py --mode review --lottery kl8 --stdout` | 推送快乐8复盘 |
+
+> 快乐8每期开20个号码(1-80)。策略：热号12+冷号8混合生成20码候选池。复盘计算候选池∩开奖号码的命中数，随机期望约5/20。
+
 ## 项目结构
 
 ```
@@ -59,7 +70,10 @@ lottery-analysis/
 │   ├── visualize.py          # 走势图/热力图（matplotlib + plotly）
 │   ├── issue_utils.py         # 期号标准化（PLS/D3格式互转）
 │   ├── source_health.py       # 数据源健康报告
-│   ├── hermes_push.py         # 两段式推送（predict模式=预测 / review模式=复盘+近期表现）
+│   ├── hermes_push.py         # 两段式推送（支持 --lottery pls/d3/kl8）
+│   ├── kl8_fetcher.py          # 快乐8官方API数据抓取（1-80选20）
+│   ├── kl8_predictor.py        # 快乐8候选池预测（热12+冷8策略）
+│   ├── kl8_reviewer.py         # 快乐8复盘（候选池∩开奖交集统计）
 │   └── push/                   # Hermes cron no_agent 推送脚本
 │       ├── lottery_predict_push.sh  # 预测推送（自闭环：run_daily→source_health→push）
 │       └── lottery_review_push.sh   # 复盘推送（daily_review→push）
@@ -73,6 +87,7 @@ lottery-analysis/
 │   ├── processed/   # 特征工程输出（git忽略）
 │   ├── archived/    # 种子数据（git追踪）
 │   ├── cache/       # 统计缓存 + 熔断状态（git忽略）
+│   ├── kl8/         # 快乐8历史数据 + latest JSON
 │   └── quarantine/  # 坏数据隔离区（git忽略）
 └── output/
     ├── predictions/ # 预测JSON
@@ -80,6 +95,7 @@ lottery-analysis/
     ├── backtests/   # 回测报告
     ├── reports/     # 数据检查报告 + 健康报告
     ├── charts/      # 可视化图表
+    ├── kl8/         # 快乐8预测+复盘输出
     ├── push/        # 推送日报 + 发送日志 + pending补发
     └── tuning/      # 调参记录
 ```
@@ -150,6 +166,17 @@ python scripts/hermes_push.py --mode predict --write-only  # 只生成不推送
 python scripts/hermes_push.py --mode daily               # 旧版混合日报（兼容）
 ```
 
+### 快乐8
+
+```bash
+python scripts/kl8_fetcher.py                      # 拉取历史开奖（cwl.gov.cn官方API）
+python scripts/kl8_fetcher.py --pages 5            # 拉取5页(150期)
+python scripts/kl8_predictor.py                    # 热12+冷8策略生成20码候选池
+python scripts/kl8_reviewer.py                     # 候选池 vs 开奖复盘
+python scripts/hermes_push.py --mode predict --lottery kl8   # 推送快乐8预测
+python scripts/hermes_push.py --mode review --lottery kl8    # 推送快乐8复盘
+```
+
 ### 期号工具
 
 ```bash
@@ -197,7 +224,8 @@ review_summary.py → 终端表现摘要
 7. **期号不匹配分类处理**：`pred>actual` 标记 `waiting_actual`(exit 0)，写 `*_waiting.json` 不覆盖 latest；`pred<actual` 视为真错误(exit 1)
 8. **复盘命中按范围分层**：review_history 记录 `命中范围(Top5/Top10/Top30)` + `命中号码` + `命中排名` + `Top5直选/组选`，hermes_push 复盘推送口径与预测一致，命中时展示具体号码和排名，Top5 标注为"参考"
 9. **不做 LSTM/ML 直接预测号码**：彩票无时间依赖，ML 不优于统计方法
-10. **号码始终当字符串**：防止前导零丢失（040→40）
+10. **快乐8候选池不参与主评分**：独立模块（kl8_fetcher/predictor/reviewer），热号+冷号混合策略，与排列三/福彩3D 互不干扰
+11. **号码始终当字符串**：防止前导零丢失（040→40）
 
 ## 文件编码
 

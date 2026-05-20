@@ -1,7 +1,7 @@
 # Hermes 定时任务配置
 
 > 此文件供 Hermes 读取并自动配置定时任务。修改此文件后，同步至 Hermes 平台生效。
-> 最后更新：2026-05-20（v2.11.1：review_push.sh 改为自闭环 + cron 命令改为调用 .sh 脚本）
+> 最后更新：2026-05-20（v2.11.2：新增快乐8 KL8 数据抓取+预测+复盘+推送）
 
 ---
 
@@ -80,6 +80,31 @@ on_failure = continue
 deliver = origin
 no_agent = true
 description = 最后兜底复盘推送（push_state 自动去重）
+
+# ── 快乐8 KL8（14:30 预测 + 21:35 复盘）──
+
+[task-kl8-predict]
+cron = 30 14 * * *
+command = cd /home/admin/bendi/lottery-analysis && .venv/bin/python scripts/kl8_fetcher.py && .venv/bin/python scripts/kl8_predictor.py
+on_failure = continue
+deliver = local
+description = 快乐8：拉取历史开奖 + 生成20码候选池
+
+[task-kl8-predict-push]
+cron = 40 14 * * *
+command = cd /home/admin/bendi/lottery-analysis && .venv/bin/python scripts/hermes_push.py --mode predict --lottery kl8 --stdout
+on_failure = continue
+deliver = origin
+no_agent = true
+description = 快乐8：推送20码候选池预测
+
+[task-kl8-review]
+cron = 35 21 * * *
+command = cd /home/admin/bendi/lottery-analysis && .venv/bin/python scripts/kl8_fetcher.py && .venv/bin/python scripts/kl8_reviewer.py && .venv/bin/python scripts/hermes_push.py --mode review --lottery kl8 --stdout
+on_failure = continue
+deliver = origin
+no_agent = true
+description = 快乐8：拉取最新开奖+复盘命中数+推送
 ```
 
 ---
@@ -119,6 +144,11 @@ Hermes 执行环境需配置以下变量：
       ├── 数据源未更新 → 自动跳过不推送
       ├── 复盘成功 + 未推送过 → 推送
       └── 已推送过 → 自动去重跳过
+
+快乐8（独立模块）：
+  14:30 → kl8_fetcher + kl8_predictor（20码候选池）
+  14:40 → hermes_push --mode predict --lottery kl8
+  21:35 → kl8_fetcher + kl8_reviewer + push（复盘命中数）
 ```
 
 **核心改进：**
@@ -282,6 +312,16 @@ python scripts/data_fetcher.py --cb-status
 | `output/reports/{lottery}_compare_latest.json` | `compare_result.py` | 最新对比结果 |
 | `output/reports/{lottery}_compare_waiting.json` | `compare_result.py` | 等待状态（pred > actual） |
 | `output/reports/source_health.json` | `source_health.py` | 健康报告 |
+
+### 快乐8 (KL8) 模式读取
+
+| 文件 | 来源 | 内容 |
+|------|------|------|
+| `data/kl8/kl8_history.csv` | `kl8_fetcher.py` | 历史开奖数据 |
+| `data/kl8/kl8_latest.json` | `kl8_fetcher.py` | 最新一期开奖 |
+| `output/kl8/kl8_predict_latest.json` | `kl8_predictor.py` | 20码候选池预测 |
+| `output/kl8/kl8_review_latest.json` | `kl8_reviewer.py` | 候选池vs开奖复盘 |
+| `output/kl8/kl8_review_history.csv` | `kl8_reviewer.py` | 复盘历史累加 |
 
 ### 推送脚本写入
 

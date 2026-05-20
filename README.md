@@ -1,7 +1,7 @@
 
-# 彩票数据分析与预测系统（排列三 / 福彩3D）
+# 彩票数据分析与预测系统（排列三 / 福彩3D / 快乐8）
 
-基于**多窗口统计 + 理论分布 + 动态评分引擎**的彩票评分预测系统。对 000-999 全部 1000 注号码多维度打分排序，输出 Top-K 候选。
+基于**多窗口统计 + 理论分布 + 动态评分引擎**的彩票评分预测系统。排列三/福彩3D 对 1000 注号码多维度打分排序；快乐8 生成 20 码候选池（1-80 选 20）。
 
 > ⚠️ **重要声明**：彩票开奖完全随机，本项目仅供学习、研究和娱乐参考。所有分析仅基于历史数据统计和理论分布，不代表未来开奖结果。请理性对待，量力而行。不保证任何命中率。
 
@@ -272,6 +272,27 @@ python run_daily.py pls --top-k 20 --exclude-recent 3
 
 > 两段式推送：预测和复盘分开推送，避免期号混淆。详见 [docs/HERMES_CONFIG.md](docs/HERMES_CONFIG.md)。
 
+## 快乐8（KL8）—— 独立模块
+
+快乐8 每期开 20 个号码（1-80）。当前使用**热号 12 + 冷号 8**混合策略生成 20 码候选池，复盘统计命中数（随机期望约 5/20）。
+
+```bash
+# 拉取历史开奖
+python scripts/kl8_fetcher.py --pages 3
+
+# 生成候选池预测
+python scripts/kl8_predictor.py
+
+# 开奖后复盘
+python scripts/kl8_reviewer.py
+
+# 推送
+python scripts/hermes_push.py --mode predict --lottery kl8
+python scripts/hermes_push.py --mode review --lottery kl8
+```
+
+> 快乐8 为独立模块（`scripts/kl8_*.py`），不影响排列三/福彩3D 主流程。
+
 ## 已知问题与限制
 
 - 🟢 **福彩3D自动拉取**：eastmoney.com 主源自动获取数据，已验证可用；zhcw.com 保留为备用校验源
@@ -284,6 +305,7 @@ python run_daily.py pls --top-k 20 --exclude-recent 3
 
 ## 更新日志
 
+- **v2.11.0** (2026-05-20)：新增快乐8(KL8)独立模块——kl8_fetcher 官方API数据抓取、kl8_predictor 热12+冷8候选池、kl8_reviewer 交集复盘、hermes_push --lottery kl8 推送；feature/kl8 分支隔离开发
 - **v2.10.3** (2026-05-20)：复盘字段对齐——review_history 新增命中范围/命中号码/命中排名/Top5直选/Top5组选 5 个字段；hermes_push 复盘按实开期号读 `*_predict_{issue}.json` 而非 latest；命中时展示具体号码+排名+范围，Top5 标注为"参考"
 - **v2.10.2** (2026-05-20)：14:40 推送自闭环——lottery_predict_push.sh 内部自动执行 run_daily → source_health → hermes_push 全流程，不再依赖 14:30 预生成；推送加 `--force` 避免去重误拦截；推送脚本纳入版本控制（`scripts/push/`）；文档同步 no_agent 审批说明
 - **v2.10.1** (2026-05-19)：推送链路加固——推送类 cron 改为 no_agent 模式绕过 Tirith glibc 兼容问题；lottery_predict_push.sh / lottery_review_push.sh 脚本化；HERMES_CONFIG.md 同步 no_agent 配置；详细讨论见 `changelog/2026-05-19-fix-tirith-cron-push.md`
