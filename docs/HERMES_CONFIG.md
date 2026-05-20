@@ -27,8 +27,10 @@ cron_mode = allow
 
 > 所有任务 working_directory = 项目根目录
 > cd 路径根据 Hermes 实际环境替换
-> ⚠️ 14:30 和 14:35 为辅助预生成，即使失败也不影响 14:40 推送
->    因为 14:40 的推送脚本（lottery_predict_push.sh）会先自检预测数据，若过时或缺失则自动补跑 run_daily.py
+|> ⚠️ 14:30 和 14:35 为辅助预生成，即使失败也不影响 14:40 推送
+>    因为 14:40 的推送脚本（lottery_predict_push.sh）内部自动执行 run_daily → source_health → hermes_push --mode predict --stdout --force
+>    注意：实际环境中，14:40 任务配置为 no_agent=true，通过 Hermes cron 的 script 字段指向 ~/.hermes/scripts/lottery_predict_push.sh，不经过 agent 审批链。
+>    以下 command 中的路径仅为文档示意，实际执行入口以 ~/.hermes/scripts/ 下的脚本为准。
 
 ```
 # ── 下午预测链路（14:30 → 14:35 → 14:40）──
@@ -36,9 +38,9 @@ cron_mode = allow
 [task-predict-generate]
 cron = 30 14 * * *
 command = cd /path/to/lottery-analysis && python run_daily.py --strategy all --top-k 30
-on_failure = stop
+on_failure = continue
 deliver = local
-description = 生成今日预测（数据抓取→特征→统计→三策略评分）
+description = 预生成预测（辅助，失败不影响14:40推送）
 
 [task-predict-health]
 cron = 35 14 * * *
@@ -60,21 +62,23 @@ description = 推送今日预测到飞书（自闭环：自动重新跑预测再
 
 [task-review-2135]
 cron = 35 21 * * *
-command = cd /path/to/lottery-analysis && python scripts/daily_review.py && python scripts/hermes_push.py --mode review --stdout
+command = # no_agent 模式，通过 lottery_review_push.sh 脚本执行
+         # 脚本内部：daily_review.py && hermes_push.py --mode review --stdout
+         # push_state.json 自动防重，不加 --force
 on_failure = continue
 deliver = origin
 description = 初次复盘+推送（开奖后35分钟）
 
 [task-review-2205]
 cron = 05 22 * * *
-command = cd /path/to/lottery-analysis && python scripts/daily_review.py && python scripts/hermes_push.py --mode review --stdout
+command = # 同上，push_state.json 自动防重
 on_failure = continue
 deliver = origin
 description = 补偿复盘+推送（开奖后65分钟，push_state.json 自动防重）
 
 [task-review-2310]
 cron = 10 23 * * *
-command = cd /path/to/lottery-analysis && python scripts/daily_review.py && python scripts/hermes_push.py --mode review --stdout
+command = # 同上，push_state.json 自动防重
 on_failure = continue
 deliver = origin
 description = 最后兜底复盘+推送（push_state.json 自动防重）

@@ -1,6 +1,6 @@
 # 项目审查总览
 
-> 最后更新：2026-05-16 | 版本：v2.7.1
+> 最后更新：2026-05-20 | 版本：v2.10.2
 
 ## 审查结论
 
@@ -11,7 +11,7 @@
 | 回测 | 🟢 v2 | Walk-forward + 三策略 + 奖金区分组三/组六 |
 | 数据源 | 🟢 良好 | 排列三API(体彩官方,567重试) ✅ 福彩3D(zhcw主源+eastmoney备用+双源校验) ✅ seed归档 ✅ |
 | 依赖管理 | 🟢 有 | requirements.txt（不锁版本号，不装无用库） |
-| 文档 | 🟢 完善 | README + PROJECT_REVIEW.md + CODE_REVIEW_REPORT.md |
+| 文档 | 🟢 完善 | README + CLAUDE.md + PROJECT_REVIEW.md + CHANGELOG.md + HERMES_CONFIG.md |
 | 可视化 | 🟢 完善 | matplotlib + plotly 交互图（走势/遗漏/热力图/Top50分布） |
 | 工程化 | 🟢 有 | .gitattributes, .gitignore, .gitkeep, data/archived/种子数据 |
 
@@ -37,10 +37,11 @@
 
 | 问题 | 严重程度 | 影响 |
 |:-----|:--------:|:-----|
-| 评分权重系统调优 | 🟡 中 | tune_weights.py 已就绪，等待复盘数据积累 30 期后运行 |
+| 评分权重系统调优 | 🟡 中 | tune_weights.py 已就绪，等待复盘数据积累 30 期后运行（当前 24 条记录/4 期） |
 | 遗漏计算伪向量化 | 🟢 低 | 当前 7600 行性能足够，纯向量化改写可选 |
 
 > v2.7 已解决：福彩3D双源(zhcw+eastmoney+双源校验)、组三回归惩罚、API 567重试、回测命中累加、参数验证、PNG中文字体、shell=True、复盘闭环(review_history+review_summary)、多策略权重、Optuna贝叶斯优化、参数稳定性分析
+> v2.10.x 已解决：两段式推送(predict/review分离)、compare_result期号分类(waiting_actual)、push_state防重复、no_agent推送自闭环(run_daily→source_health→push)、--force去重绕过
 
 ### 不采纳的建议（附理由）
 
@@ -57,7 +58,25 @@
 
 ## 架构变更记录
 
-### v2.7.1（当前）
+### v2.10.2（当前）
+- 14:40 推送自闭环：`lottery_predict_push.sh` 内部自动执行 run_daily → source_health → hermes_push 全流程
+- 预测推送加 `--force`，避免当天去重命中后无输出
+- 推送脚本纳入版本控制（`scripts/push/`）
+- 14:30/14:35 明确标注为辅助任务，失败不阻塞推送
+
+### v2.10.1
+- Tirith glibc 兼容问题：推送类 cron 全部改为 no_agent=true，绕过安全审批链
+- 新建 `~/.hermes/scripts/lottery_predict_push.sh` / `lottery_review_push.sh`
+- 不消耗 API token（无大模型调用）
+
+### v2.10.0
+- 两段式推送：hermes_push 新增 predict/review 两种模式，下午推预测，晚间推复盘
+- compare_result 按期号查找预测文件 + waiting_actual 状态分类（exit 0 不覆盖 latest）
+- HERMES_CONFIG 6 cron job 结构化配置
+- push_state.json 防重复推送
+- build_review_message 重写为"今日预测 vs 开奖直接对比"
+
+### v2.7.1（历史）
 - Hermes cron 适配：`daily_review.py` 一键复盘（拉取→对比→摘要）；`compare_result.py --strategy` 多策略对比
 - `review_history.csv` 增加策略列，支持按策略分组复盘
 - `backtest.py` ROI 拆分直选/组选独立计算

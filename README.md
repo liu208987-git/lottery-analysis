@@ -46,18 +46,25 @@ python scripts/backtest.py --lottery d3 --periods 100 --top-k 30
 
 ```
 lottery-analysis/
+├── run_daily.py                  # 一键每日运行入口
 ├── scripts/
-│   ├── data_fetcher.py       # 自动拉取最新数据（体彩API+福彩页面）
-│   ├── feature_engine.py     # 113维特征工程 + 数据质量检查
-│   ├── stats_engine.py       # 多窗口统计 + 理论分布对比
-│   ├── scoring_engine.py     # 评分引擎v2（YAML权重+多样性惩罚+冷补偿）
-│   ├── backtest.py           # Walk-forward回测（三策略对比）
-│   ├── compare_result.py     # 预测 vs 开奖对比 + review_history累加
-│   ├── review_summary.py     # 最近N期复盘表现摘要
-│   ├── daily_review.py       # 每日复盘一键脚本（Hermes cron调用）
-│   ├── tune_weights.py       # 权重自动调优（随机搜索 + Optuna贝叶斯优化）
-│   ├── filter_engine.py      # 轻量预过滤器
-│   └── visualize.py          # 走势图/热力图（可选）
+│   ├── data_fetcher.py           # 多源数据抓取（js-lottery/eastmoney主源 + sporttery/zhcw备用 + 熔断 + 校验）
+│   ├── feature_engine.py         # 113维特征工程 + 数据质量检查
+│   ├── stats_engine.py           # 多窗口统计 + 理论分布
+│   ├── scoring_engine.py         # 评分引擎v2（YAML权重 + 回归惩罚 + 多样性）
+│   ├── backtest.py               # Walk-forward 回测（三策略对比 + ROI拆分）
+│   ├── compare_result.py         # 预测 vs 开奖对比 + review_history累加
+│   ├── review_summary.py         # 最近N期复盘表现摘要
+│   ├── daily_review.py           # 每日复盘一键脚本（Hermes cron调用）
+│   ├── tune_weights.py           # 权重自动调优（随机搜索 + Optuna贝叶斯优化 + 稳定性分析）
+│   ├── filter_engine.py          # 轻量预过滤（已降级）
+│   ├── visualize.py              # 走势图/热力图（matplotlib + plotly）
+│   ├── issue_utils.py            # 期号标准化（PLS/D3格式互转）
+│   ├── source_health.py          # 数据源健康报告
+│   ├── hermes_push.py            # 两段式推送（predict/review/daily三种模式）
+│   └── push/                     # Hermes cron no_agent 推送脚本
+│       ├── lottery_predict_push.sh  # 预测推送（自闭环：run_daily→source_health→push）
+│       └── lottery_review_push.sh   # 复盘推送（daily_review→push）
 ├── rules/
 │   ├── scoring_weights.yaml              # 默认权重
 │   ├── scoring_weights_conservative.yaml # 稳健策略
@@ -66,19 +73,24 @@ lottery-analysis/
 │   ├── pls_default.yaml                  # 排列三过滤规则
 │   └── d3_default.yaml                   # 福彩3D过滤规则
 ├── data/
-│   ├── raw/                  # 原始CSV（data_fetcher.py存放位置）
+│   ├── raw/                  # 原始CSV（data_fetcher.py储存位置）
 │   ├── processed/            # 特征工程输出（113维）
 │   ├── archived/             # 种子数据（首次clone自动复制到raw/）
-│   └── cache/                # 统计缓存
+│   ├── cache/                # 统计缓存 + 熔断状态
+│   └── quarantine/           # 坏数据隔离区
 ├── output/
-│   ├── predictions/          # 预测结果JSON（支持多策略独立输出）
+│   ├── predictions/          # 预测结果JSON（多策略独立输出）
 │   ├── reviews/              # 复盘总表（review_history.csv）
 │   ├── backtests/            # 回测报告
 │   ├── charts/               # 可视化图表
-│   ├── reports/              # 数据检查+对比报告
+│   ├── reports/              # 数据检查报告 + 健康报告 + 对比报告
+│   ├── push/                 # 推送日报 + 发送日志 + pending补发
 │   └── tuning/               # 调参记录
-├── CLAUDE.md                 # Claude Code 项目指令
+├── changelog/                 # 单日详细变更记录
+├── CLAUDE.md                 # Agent 项目指令
 ├── Makefile                  # 一键命令入口
+├── PROJECT_REVIEW.md         # 项目审查记录
+├── CHANGELOG.md              # 集中式变更日志
 └── requirements.txt          # 依赖清单
 ```
 
@@ -262,7 +274,7 @@ python run_daily.py pls --top-k 20 --exclude-recent 3
 
 ## 已知问题与限制
 
-- 🟢 **福彩3D双源覆盖**：zhcw.com 主源 + eastmoney.com 备用校验，自动 fallback
+- 🟢 **福彩3D自动拉取**：eastmoney.com 主源自动获取数据，已验证可用；zhcw.com 保留为备用校验源
 - 🟡 **评分权重待调优**：tune_weights.py 已就绪（随机搜索 + Optuna 贝叶斯优化），等待复盘数据积累
 - ⚠️ **彩票结果高度随机**：所有分析仅基于历史统计，不代表未来结果
 
