@@ -6,6 +6,7 @@
     "total_cost": 2,
     "total_prize": 5,
     "total_profit": 3,
+    "hit2_count": 0,
     "hit3_count": 1,
     "hit4_count": 0,
     "hit_rate": 1.0,
@@ -17,6 +18,7 @@
     "total_cost": 2,
     "total_prize": 5,
     "total_profit": 3,
+    "hit2_count": 0,
     "hit3_count": 1,
     "hit4_count": 0,
     "hit_rate": 1.0,
@@ -28,11 +30,12 @@
     "total_cost": 2,
     "total_prize": 5,
     "total_profit": 3,
+    "hit2_count": 0,
     "hit3_count": 1,
     "hit4_count": 0,
     "hit_rate": 1.0,
     "avg_pool_hit": 10.0,
     "max_miss_streak": 0
   },
-  "updated_at": "2026-05-20 19:33:15"
+  "updated_at": "2026-05-20 20:29:28"
 }

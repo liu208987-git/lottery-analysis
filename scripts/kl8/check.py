@@ -16,6 +16,10 @@ def ok(msg: str):
     print(f"  ✅ {msg}")
 
 
+def info(msg: str):
+    print(f"  ℹ️ {msg}")
+
+
 def warn(msg: str):
     global ERRORS
     ERRORS += 1
@@ -106,7 +110,7 @@ def check_review():
     print("\n── kl8_review_latest.json ──")
     p = OUTPUT_DIR / "kl8_review_latest.json"
     if not p.exists():
-        warn("kl8_review_latest.json 不存在（可能尚未开奖）")
+        info("kl8_review_latest.json 不存在（可能尚未开奖）")
         return
     data = json.loads(p.read_text(encoding="utf-8"))
     for f in ["lottery", "issue", "date", "strategy", "play_type",

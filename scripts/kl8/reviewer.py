@@ -32,7 +32,8 @@ def find_actual_by_issue(target_issue: str) -> dict | None:
 
 
 # 选四奖级表：命中数 → 奖金(元)
-PLAY4_PRIZES = {4: 100, 3: 5, 2: 0, 1: 0, 0: 0}
+# 官方标准：中4=93元 中3=5元 中2=3元（派奖期间中4可能上调至100元）
+PLAY4_PRIZES = {4: 93, 3: 5, 2: 3, 1: 0, 0: 0}
 COST_PER_BET = 2
 
 
@@ -53,7 +54,7 @@ def review(prediction: dict, actual: dict) -> dict:
     elif play4_hit_count == 3:
         result_level = "选四中三"
     elif play4_hit_count == 2:
-        result_level = "选四中二（无奖）"
+        result_level = "选四中二"
     else:
         result_level = "未中奖"
 

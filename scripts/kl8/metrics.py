@@ -22,14 +22,15 @@ def compute(rows: list[dict]) -> dict:
     costs = [int(r.get("成本", 2)) for r in rows]
     prizes = [int(r.get("奖金", 0)) for r in rows]
     profits = [int(r.get("盈亏", 0)) for r in rows]
+    hit2 = sum(1 for r in rows if r.get("结果", "") == "选四中二")
     hit3 = sum(1 for r in rows if r.get("结果", "") == "选四中三")
     hit4 = sum(1 for r in rows if r.get("结果", "") == "选四中四")
     pool_hits = [int(r.get("池命中", 0)) for r in rows]
 
-    # 最大连续未中
+    # 最大连续未中奖（中二及以上均算有奖）
     max_miss = cur_miss = 0
     for r in rows:
-        if r.get("结果", "") in ("未中奖", "选四中二（无奖）"):
+        if r.get("结果", "") == "未中奖":
             cur_miss += 1
             max_miss = max(max_miss, cur_miss)
         else:
@@ -40,9 +41,10 @@ def compute(rows: list[dict]) -> dict:
         "total_cost": sum(costs),
         "total_prize": sum(prizes),
         "total_profit": sum(profits),
+        "hit2_count": hit2,
         "hit3_count": hit3,
         "hit4_count": hit4,
-        "hit_rate": round((hit3 + hit4) / total, 4) if total else 0,
+        "hit_rate": round((hit2 + hit3 + hit4) / total, 4) if total else 0,
         "avg_pool_hit": round(sum(pool_hits) / total, 2) if total else 0,
         "max_miss_streak": max_miss,
     }
@@ -79,7 +81,7 @@ def main():
     print(f"✅ 快乐8 累计表现")
     print(f"   近{m7['days']}期: 成本{m7['total_cost']}元 奖金{m7['total_prize']}元 "
           f"盈亏{'+' if m7['total_profit'] > 0 else ''}{m7['total_profit']}元 "
-          f"中三{m7['hit3_count']}次 中四{m7['hit4_count']}次")
+          f"中二{m7['hit2_count']}次 中三{m7['hit3_count']}次 中四{m7['hit4_count']}次")
     print(f"   保存: {out}")
 
 

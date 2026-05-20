@@ -800,9 +800,11 @@ def build_kl8_review_message() -> str:
             parts.append(f"  成本：{m7['total_cost']}元 | "
                          f"奖金：{m7['total_prize']}元 | "
                          f"盈亏：{'+' if m7['total_profit'] > 0 else ''}{m7['total_profit']}元")
-            parts.append(f"  中三：{m7['hit3_count']}次 | "
-                         f"中四：{m7['hit4_count']}次 | "
-                         f"池均命中：{m7['avg_pool_hit']}/20")
+            parts.append(f"  中二：{m7['hit2_count']}次 | "
+                         f"中三：{m7['hit3_count']}次 | "
+                         f"中四：{m7['hit4_count']}次")
+            parts.append(f"  池均命中：{m7['avg_pool_hit']}/20 | "
+                         f"最长连挂：{m7['max_miss_streak']}期")
             parts.append("")
 
     parts.append("⚠️ 彩票具有随机性，以上仅供统计复盘参考。")
