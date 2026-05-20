@@ -263,6 +263,36 @@ def append_to_history(report, lottery, strategy='default'):
     top1 = report['逐注对比'][0] if report['逐注对比'] else {}
     now = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
 
+    # 计算各范围命中情况
+    all_rows = report.get('逐注对比', [])
+    it_top5 = [r for r in all_rows if r['排名'] <= 5]
+    it_top10 = [r for r in all_rows if r['排名'] <= 10]
+
+    def hit_info(rows):
+        direct = next((r for r in rows if r['直选命中']), None)
+        if direct:
+            return ('直选', direct['预测号码'], direct['排名'])
+        group = next((r for r in rows if r['组选命中']), None)
+        if group:
+            return ('组选', group['预测号码'], group['排名'])
+        return (None, '', '')
+
+    hit_top5_type, hit_top5_num, hit_top5_rank = hit_info(it_top5)
+    hit_top10_type, hit_top10_num, hit_top10_rank = hit_info(it_top10)
+
+    hit_all = next((r for r in all_rows if r['直选命中']), None)
+    if not hit_all:
+        hit_all = next((r for r in all_rows if r['组选命中']), None)
+
+    if hit_top5_type:
+        hit_range = 'Top5'
+    elif hit_top10_type:
+        hit_range = 'Top10'
+    elif hit_all:
+        hit_range = 'Top30'
+    else:
+        hit_range = '未命中'
+
     row = {
         '策略': strategy,
         '彩种': report['彩种'],
@@ -271,6 +301,11 @@ def append_to_history(report, lottery, strategy='default'):
         '预测Top1': top1.get('预测号码', ''),
         '直选命中Top30': report['命中情况']['直选命中'],
         '组选命中Top30': report['命中情况']['组选命中'],
+        '命中范围': hit_range,
+        '命中号码': hit_all['预测号码'] if hit_all else '',
+        '命中排名': str(hit_all['排名']) if hit_all else '',
+        'Top5直选': hit_top5_type == '直选',
+        'Top5组选': hit_top5_type == '组选',
         'Top1和值误差': top1.get('和值差', ''),
         'Top1跨度误差': top1.get('跨度差', ''),
         'Top1形态一致': top1.get('形态一致', ''),

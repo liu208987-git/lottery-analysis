@@ -661,13 +661,13 @@ def build_review_message() -> str:
         if not items:
             continue
         actual = items[0].get("开奖号码", "未知")
-        issue = items[0].get("期号", "未知")
+        review_issue = items[0].get("期号", "未知")
         pattern = calc_pattern(actual)
         total = calc_sum(actual)
         span = calc_span(actual)
 
         parts.append("━━━━━━━━━━━━━━")
-        parts.append(f"{lotto} {issue}")
+        parts.append(f"{lotto} {review_issue}")
         parts.append("━━━━━━━━━━━━━━")
         parts.append(f"开奖号码：{actual}（{pattern}｜和值{total}｜跨度{span}）")
         parts.append("")
@@ -680,8 +680,14 @@ def build_review_message() -> str:
             if not item:
                 continue
 
-            # 从预测文件取Top5
-            st_data = read_json(PRED_DIR / f"latest_{lottery_key}_{st_key}.json") if st_key != "default" else read_json(PRED_DIR / f"latest_{lottery_key}.json")
+            # 按期号读对应预测文件，fallback latest
+            issue_digits = "".join(c for c in review_issue if c.isdigit())
+            prefix = f"{lottery_key}_{st_key}" if st_key != "default" else lottery_key
+            issue_pred_path = PRED_DIR / f"{prefix}_predict_{issue_digits}.json"
+            if issue_pred_path.exists():
+                st_data = read_json(issue_pred_path)
+            else:
+                st_data = read_json(PRED_DIR / f"latest_{prefix}.json")
             top10 = extract_top10(st_data) if st_data else []
             top5_str = " ".join(top10[:5]) if top10 else "-"
 
@@ -691,18 +697,22 @@ def build_review_message() -> str:
             span_err = int(item.get("Top1跨度误差", 99))
             form_ok = parse_bool(item.get("Top1形态一致", ""))
 
+            hit_range = item.get("命中范围", "")
+            hit_num = item.get("命中号码", "")
+            hit_rank = item.get("命中排名", "")
+
             if direct_hit:
                 result_icon = "🎯"
-                result_text = "直选命中！"
+                result_text = f"{hit_range}直选命中  {hit_num}（第{hit_rank}名）"
             elif group_hit:
                 result_icon = "✅"
-                result_text = "组选命中"
+                result_text = f"{hit_range}组选命中  {hit_num}（第{hit_rank}名）"
             else:
                 result_icon = "❌"
-                result_text = "未命中"
+                result_text = f"未命中"
 
             parts.append(f"{result_icon} {label}：{result_text}")
-            parts.append(f"  Top5：{top5_str}")
+            parts.append(f"  Top5参考：{top5_str}")
             parts.append(f"  和值差{sum_err}｜跨度差{span_err}｜形态{'一致' if form_ok else '不一致'}")
             parts.append("")
 
