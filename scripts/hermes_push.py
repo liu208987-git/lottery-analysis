@@ -774,7 +774,7 @@ def build_kl8_review_message() -> str:
 
     play4 = data.get("recommended_play4", [])
     play4_hit = data.get("play4_hit_numbers", [])
-    return "\n".join([
+    parts = [
         f"📊 快乐8复盘｜{today_str()}",
         "",
         f"期号：{data.get('issue', '?')}  |  {data.get('date', '?')}",
@@ -788,8 +788,25 @@ def build_kl8_review_message() -> str:
         "",
         f"【20码池】命中：{data.get('pool_hit_count', 0)}/20",
         "",
-        "⚠️ 彩票具有随机性，以上仅供统计复盘参考。",
-    ])
+    ]
+
+    # 累计表现
+    metrics_path = KL8_OUTPUT_DIR / "kl8_metrics.json"
+    if metrics_path.exists():
+        m = read_json(metrics_path)
+        m7 = m.get("last7", {})
+        if m7.get("days", 0) > 0:
+            parts.append(f"【累计表现（近{m7['days']}期）】")
+            parts.append(f"  成本：{m7['total_cost']}元 | "
+                         f"奖金：{m7['total_prize']}元 | "
+                         f"盈亏：{'+' if m7['total_profit'] > 0 else ''}{m7['total_profit']}元")
+            parts.append(f"  中三：{m7['hit3_count']}次 | "
+                         f"中四：{m7['hit4_count']}次 | "
+                         f"池均命中：{m7['avg_pool_hit']}/20")
+            parts.append("")
+
+    parts.append("⚠️ 彩票具有随机性，以上仅供统计复盘参考。")
+    return "\n".join(parts)
 
 
 # ═══════════════════════════════════════════
