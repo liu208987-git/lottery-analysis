@@ -17,6 +17,12 @@ output/*
 !output/**/.gitkeep
 !output/predictions/*.json
 !output/predictions/latest_*.json
+!output/kl8/
+!output/kl8/kl8_predict_*.json
+!output/kl8/kl8_predict_latest.json
+!output/kl8/kl8_review_*.json
+!output/kl8/kl8_review_latest.json
+!output/kl8/kl8_review_history.csv
 
 !output/reviews/
 !output/reviews/*.csv
@@ -24,6 +30,11 @@ output/*
 !output/reports/*.json
 !output/tuning/
 !output/tuning/*.json
+
+# 快乐8数据
+data/kl8/*
+!data/kl8/kl8_history.csv
+!data/kl8/kl8_latest.json
 
 # 推送运行时数据
 output/push/*.jsonl

@@ -31,7 +31,10 @@ import requests
 BASE = Path(__file__).resolve().parent.parent
 
 PRED_DIR = BASE / "output" / "predictions"
+KL8_OUTPUT_DIR = BASE / "output" / "kl8"
+KL8_DATA_DIR = BASE / "data" / "kl8"
 REVIEW_HISTORY = BASE / "output" / "reviews" / "review_history.csv"
+KL8_REVIEW_HISTORY = KL8_OUTPUT_DIR / "kl8_review_history.csv"
 REPORT_DIR = BASE / "output" / "reports"
 CACHE_DIR = BASE / "data" / "cache"
 PUSH_DIR = BASE / "output" / "push"
@@ -730,6 +733,62 @@ def build_review_message() -> str:
 
 
 # ═══════════════════════════════════════════
+#  快乐8 (KL8) 推送
+# ═══════════════════════════════════════════
+
+def build_kl8_predict_message() -> str:
+    """生成快乐8预测推送"""
+    data = read_json(KL8_OUTPUT_DIR / "kl8_predict_latest.json")
+    if not data:
+        return "🎯 快乐8预测\n暂无预测数据"
+
+    pool = data.get("candidate_pool", [])
+    return "\n".join([
+        f"🎯 快乐8预测日报｜{today_str()}",
+        "",
+        f"预测期号：{data.get('predicted_issue', '?')}",
+        f"策略：{data.get('strategy', '?')}",
+        "",
+        f"候选20码：",
+        f"  {' '.join(f'{n:02d}' for n in pool[:10])}",
+        f"  {' '.join(f'{n:02d}' for n in pool[10:])}",
+        "",
+        f"分区分布：01-20:{data['zone_distribution']['01-20']}  "
+        f"21-40:{data['zone_distribution']['21-40']}  "
+        f"41-60:{data['zone_distribution']['41-60']}  "
+        f"61-80:{data['zone_distribution']['61-80']}",
+        "",
+        "⚠️ 彩票具有随机性，候选池仅基于历史统计生成，不构成投注建议。",
+    ])
+
+
+def build_kl8_review_message() -> str:
+    """生成快乐8复盘推送"""
+    data = read_json(KL8_OUTPUT_DIR / "kl8_review_latest.json")
+    if not data:
+        return "📊 快乐8复盘\n暂无复盘数据"
+
+    hit = data.get("hit_numbers", [])
+    return "\n".join([
+        f"📊 快乐8复盘｜{today_str()}",
+        "",
+        f"期号：{data.get('issue', '?')}  |  {data.get('date', '?')}",
+        f"策略：{data.get('strategy', '?')}",
+        "",
+        f"命中：{data['hit_count']}/20（期望~5）",
+        f"命中号码：{' '.join(f'{n:02d}' for n in hit) if hit else '无'}",
+        f"命中率：{data['hit_rate']}",
+        "",
+        f"分区命中：01-20:{data['zone_hit']['01-20']}  "
+        f"21-40:{data['zone_hit']['21-40']}  "
+        f"41-60:{data['zone_hit']['41-60']}  "
+        f"61-80:{data['zone_hit']['61-80']}",
+        "",
+        "⚠️ 彩票具有随机性，以上仅供统计复盘参考。",
+    ])
+
+
+# ═══════════════════════════════════════════
 #  日报拼接（7段结构，保留兼容）
 # ═══════════════════════════════════════════
 
@@ -1029,22 +1088,35 @@ def send_or_save(text: str, kind: str, force: bool = False, do_send: bool = True
 def main():
     parser = argparse.ArgumentParser(description="Hermes 推送")
     parser.add_argument("--mode", choices=["daily", "predict", "review"], default="daily")
+    parser.add_argument("--lottery", choices=["all", "pls", "d3", "kl8"], default="all",
+                        help="彩种（默认all=排列三+福彩3D+快乐8）")
     parser.add_argument("--write-only", action="store_true", help="只生成不推送")
     parser.add_argument("--force", action="store_true", help="忽略今日去重，强制发送")
     parser.add_argument("--stdout", action="store_true",
                         help="只输出正文到stdout（供Hermes deliver=origin推送），日志走stderr")
     args = parser.parse_args()
 
-    kind = args.mode
+    lottery = args.lottery
+    kind = f"{args.mode}_{lottery}" if lottery != "all" else args.mode
 
     if args.mode == "predict":
-        text = build_predict_message()
+        if lottery == "kl8":
+            text = build_kl8_predict_message()
+        elif lottery in ("pls", "d3", "all"):
+            text = build_predict_message()
+        else:
+            text = build_daily_message()
     elif args.mode == "review":
-        ready, ready_msg = check_review_ready()
-        if not ready:
-            print(f"[跳过] {ready_msg}", file=sys.stderr)
-            sys.exit(0)
-        text = build_review_message()
+        if lottery == "kl8":
+            text = build_kl8_review_message()
+        elif lottery in ("pls", "d3", "all"):
+            ready, ready_msg = check_review_ready()
+            if not ready:
+                print(f"[跳过] {ready_msg}", file=sys.stderr)
+                sys.exit(0)
+            text = build_review_message()
+        else:
+            text = build_daily_message()
     else:
         text = build_daily_message()
 
