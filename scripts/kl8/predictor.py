@@ -81,17 +81,19 @@ def pick_play4(pool: list[int], draws: list[list[int]], top_n: int = 4) -> list[
     return pool[:top_n]
 
 
-def predict(latest_issue: str) -> dict:
+def predict(latest_issue: str, pool_size: int = 20, hot_ratio: float = 0.6) -> dict:
     draws = load_history()
     if not draws:
         print("[ERROR] 无历史数据，请先运行 kl8/fetcher.py", file=sys.stderr)
         sys.exit(1)
 
-    pool = build_candidate_pool(draws)
+    pool = build_candidate_pool(draws, pool_size=pool_size, hot_ratio=hot_ratio)
     play4 = pick_play4(pool, draws)
     freq = Counter()
     for nums in draws[:30]:
         freq.update(nums)
+
+    hot_set = {n for n, _ in freq.most_common(12)}
 
     target = next_issue(latest_issue)
     return {
@@ -105,7 +107,7 @@ def predict(latest_issue: str) -> dict:
         "hot_numbers": [n for n, _ in freq.most_common(20)],
         "cold_numbers": [n for n, _ in sorted(
             {i: freq.get(i, 0) for i in range(1, 81)}.items(),
-            key=lambda x: x[1]) if n not in freq.most_common(12)][:20],
+            key=lambda x: x[1]) if n not in hot_set][:20],
         "zone_distribution": {
             "01-20": sum(1 for n in pool if 1 <= n <= 20),
             "21-40": sum(1 for n in pool if 21 <= n <= 40),
@@ -140,7 +142,7 @@ def main():
     latest_data = json.loads(latest_path.read_text(encoding="utf-8"))
     latest_issue = latest_data["issue"]
 
-    data = predict(latest_issue)
+    data = predict(latest_issue, pool_size=args.pool_size, hot_ratio=args.hot_ratio)
     path = save_prediction(data)
 
     pool = data["candidate_pool"]
