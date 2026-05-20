@@ -41,6 +41,7 @@ def fetch_official(page_size: int = 30, max_pages: int = 10) -> list[dict]:
         try:
             resp = requests.get(url, params=params, headers=headers, timeout=15)
             if resp.status_code != 200:
+                print(f"[WARN] API返回{resp.status_code}，停止抓取", file=sys.stderr)
                 break
             data = resp.json()
             items = data.get("result", [])
@@ -55,7 +56,8 @@ def fetch_official(page_size: int = 30, max_pages: int = 10) -> list[dict]:
                 nums = [int(x) for x in red.split(",")]
                 try:
                     validate(nums)
-                except ValueError:
+                except ValueError as e:
+                    print(f"[WARN] 跳过异常号码 期号{code}: {e}", file=sys.stderr)
                     continue
                 date_clean = date_raw.split("(")[0] if "(" in date_raw else date_raw
                 all_rows.append({"issue": code, "date": date_clean, "numbers": sorted(nums)})

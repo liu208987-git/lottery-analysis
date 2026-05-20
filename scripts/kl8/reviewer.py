@@ -14,12 +14,6 @@ OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
 
 CN_TZ = timezone(timedelta(hours=8))
 
-HISTORY_FIELDNAMES = [
-    "日期", "期号", "策略", "玩法", "推荐号码", "开奖号码",
-    "命中数", "命中号码", "结果", "奖金", "成本", "盈亏", "池命中", "复盘时间",
-]
-
-
 def find_actual_by_issue(target_issue: str) -> dict | None:
     """在 history.csv 中按期号精确查找开奖数据"""
     p = DATA_DIR / "kl8_history.csv"
@@ -107,7 +101,7 @@ def append_review_history(data: dict) -> Path:
         "策略": data["strategy"],
         "玩法": data["play_type"],
         "推荐号码": " ".join(f"{n:02d}" for n in data["recommended_play4"]),
-        "开奖号码": " ".join(f"{n:02d}" for n in data["actual_numbers"][:10]) + "...",
+        "开奖号码": " ".join(f"{n:02d}" for n in data["actual_numbers"]),
         "命中数": str(data["play4_hit_count"]),
         "命中号码": " ".join(f"{n:02d}" for n in data["play4_hit_numbers"]) or "-",
         "结果": data["result_level"],
@@ -157,15 +151,15 @@ def main():
     # 按预测期号精确查找对应开奖（优先 history.csv，回退 latest.json）
     target_issue = pred.get("predicted_issue", "")
     actual = find_actual_by_issue(target_issue)
+    latest_data = None
     if not actual and actual_path.exists():
-        actual_latest = json.loads(actual_path.read_text(encoding="utf-8"))
-        if actual_latest.get("issue") == target_issue:
-            actual = actual_latest
+        latest_data = json.loads(actual_path.read_text(encoding="utf-8"))
+        if latest_data.get("issue") == target_issue:
+            actual = latest_data
 
     if not actual:
-        latest_info = json.loads(actual_path.read_text(encoding="utf-8")) if actual_path.exists() else None
         print(f"⏳ 等待开奖数据更新（预测{target_issue}，"
-              f"最新{latest_info.get('issue','?') if latest_info else '?'}）")
+              f"最新{latest_data.get('issue','?') if latest_data else '?'}）")
         sys.exit(0)
 
     data = review(pred, actual)
