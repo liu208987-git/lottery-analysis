@@ -122,7 +122,12 @@ def check_integrity() -> list[str]:
         seen_issues.add(issue)
 
     sorted_issues = sorted(seen_issues, reverse=True)
-    print(f"  📋 {len(sorted_issues)} 期数据，范围 {sorted_issues[-1]} ~ {sorted_issues[0]}")
+    if sorted_issues:
+        print(f"  📋 {len(sorted_issues)} 期数据，"
+              f"范围 {sorted_issues[-1]} ~ {sorted_issues[0]}")
+    else:
+        print(f"  📋 0 期有效数据")
+        return warnings
 
     # 缺期检测
     if len(sorted_issues) >= 2:

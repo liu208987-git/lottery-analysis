@@ -1,6 +1,6 @@
 {
   "lottery": "kl8",
-  "data_until_issue": null,
+  "data_until_issue": "2026129",
   "latest_draw": {
     "odd_even": {
       "odd": 10,
@@ -85,5 +85,5 @@
     "18": 8,
     "32": 8
   },
-  "updated_at": "2026-05-20 19:35:35"
+  "updated_at": "2026-05-20 21:06:12"
 }

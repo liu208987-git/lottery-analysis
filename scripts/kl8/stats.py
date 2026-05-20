@@ -81,9 +81,18 @@ def main():
     latest = draws[0]
     recent30 = draws[:30] if len(draws) >= 30 else draws
 
+    # 从 history csv 读取最新期号
+    data_until = "unknown"
+    hp = DATA_DIR / "kl8_history.csv"
+    if hp.exists():
+        with open(hp, encoding="utf-8-sig", newline="") as f:
+            first = next(csv.DictReader(f), None)
+            if first:
+                data_until = first["issue"]
+
     stats = {
         "lottery": "kl8",
-        "data_until_issue": None,
+        "data_until_issue": data_until,
         "latest_draw": {
             "odd_even": odd_even(latest),
             "big_small": big_small(latest),
