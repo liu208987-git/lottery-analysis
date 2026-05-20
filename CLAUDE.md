@@ -44,9 +44,9 @@
 
 | 时间 | 命令 | 说明 |
 |------|------|------|
-| 14:30 | `python scripts/kl8_fetcher.py && python scripts/kl8_predictor.py` | 拉取历史开奖 → 生成20码候选池 |
+| 14:30 | `python scripts/kl8/fetcher.py && python scripts/kl8/predictor.py` | 拉取历史开奖 → 生成20码池+选四主推 |
 | 14:40 | `python scripts/hermes_push.py --mode predict --lottery kl8 --stdout` | 推送快乐8预测 |
-| 21:35 | `python scripts/kl8_fetcher.py && python scripts/kl8_reviewer.py` | 拉最新开奖 → 复盘命中数 |
+| 21:35 | `python scripts/kl8/fetcher.py && python scripts/kl8/reviewer.py` | 拉最新开奖 → 选四命中+盈亏复盘 |
 | 21:35 | `python scripts/hermes_push.py --mode review --lottery kl8 --stdout` | 推送快乐8复盘 |
 
 > 快乐8每期开20个号码(1-80)。策略：热号12+冷号8混合生成20码候选池。复盘计算候选池∩开奖号码的命中数，随机期望约5/20。
@@ -71,9 +71,10 @@ lottery-analysis/
 │   ├── issue_utils.py         # 期号标准化（PLS/D3格式互转）
 │   ├── source_health.py       # 数据源健康报告
 │   ├── hermes_push.py         # 两段式推送（支持 --lottery pls/d3/kl8）
-│   ├── kl8_fetcher.py          # 快乐8官方API数据抓取（1-80选20）
-│   ├── kl8_predictor.py        # 快乐8候选池预测（热12+冷8策略）
-│   ├── kl8_reviewer.py         # 快乐8复盘（候选池∩开奖交集统计）
+│   ├── kl8/                    # 快乐8模块
+│   │   ├── fetcher.py          # 官方API数据抓取 + 校验（1-80选20）
+│   │   ├── predictor.py        # 候选池预测 + 选四主推荐
+│   │   └── reviewer.py         # 复盘（选四命中+盈亏+候选池交集）
 │   └── push/                   # Hermes cron no_agent 推送脚本
 │       ├── lottery_predict_push.sh  # 预测推送（自闭环：run_daily→source_health→push）
 │       └── lottery_review_push.sh   # 复盘推送（daily_review→push）
@@ -169,10 +170,11 @@ python scripts/hermes_push.py --mode daily               # 旧版混合日报（
 ### 快乐8
 
 ```bash
-python scripts/kl8_fetcher.py                      # 拉取历史开奖（cwl.gov.cn官方API）
-python scripts/kl8_fetcher.py --pages 5            # 拉取5页(150期)
-python scripts/kl8_predictor.py                    # 热12+冷8策略生成20码候选池
-python scripts/kl8_reviewer.py                     # 候选池 vs 开奖复盘
+python scripts/kl8/fetcher.py                      # 拉取历史开奖（cwl.gov.cn官方API）
+python scripts/kl8/fetcher.py --pages 5            # 拉取5页(150期)
+python scripts/kl8/fetcher.py --check              # 数据完整性检查
+python scripts/kl8/predictor.py                    # 热12+冷8策略→20码池+选四主推
+python scripts/kl8/reviewer.py                     # 选四命中+盈亏+候选池复盘
 python scripts/hermes_push.py --mode predict --lottery kl8   # 推送快乐8预测
 python scripts/hermes_push.py --mode review --lottery kl8    # 推送快乐8复盘
 ```

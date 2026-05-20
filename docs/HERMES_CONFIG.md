@@ -85,7 +85,7 @@ description = 最后兜底复盘推送（push_state 自动去重）
 
 [task-kl8-predict]
 cron = 30 14 * * *
-command = cd /home/admin/bendi/lottery-analysis && .venv/bin/python scripts/kl8_fetcher.py && .venv/bin/python scripts/kl8_predictor.py
+command = cd /home/admin/bendi/lottery-analysis && .venv/bin/python scripts/kl8/fetcher.py && .venv/bin/python scripts/kl8/predictor.py
 on_failure = continue
 deliver = local
 description = 快乐8：拉取历史开奖 + 生成20码候选池
@@ -100,7 +100,7 @@ description = 快乐8：推送20码候选池预测
 
 [task-kl8-review]
 cron = 35 21 * * *
-command = cd /home/admin/bendi/lottery-analysis && .venv/bin/python scripts/kl8_fetcher.py && .venv/bin/python scripts/kl8_reviewer.py && .venv/bin/python scripts/hermes_push.py --mode review --lottery kl8 --stdout
+command = cd /home/admin/bendi/lottery-analysis && .venv/bin/python scripts/kl8/fetcher.py && .venv/bin/python scripts/kl8/reviewer.py && .venv/bin/python scripts/hermes_push.py --mode review --lottery kl8 --stdout
 on_failure = continue
 deliver = origin
 no_agent = true

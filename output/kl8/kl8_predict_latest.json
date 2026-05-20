@@ -2,7 +2,7 @@
   "lottery": "kl8",
   "predicted_issue": "2026130",
   "data_until_issue": "2026129",
-  "strategy": "hot12_cold8",
+  "strategy": "kl8_v1_hot12_cold8",
   "candidate_pool": [
     1,
     8,
@@ -25,6 +25,13 @@
     76,
     79
   ],
+  "recommended_play4": [
+    43,
+    38,
+    76,
+    39
+  ],
+  "play_type": "选四",
   "hot_numbers": [
     39,
     46,
@@ -75,6 +82,6 @@
     "41-60": 6,
     "61-80": 6
   },
-  "note": "基于最近30期热号12+冷号8混合策略，仅供统计观察。",
-  "generated_at": "2026-05-20 16:29:14"
+  "play4_note": "主推荐为选四玩法（2元/注=成本2元），中4得100元，中3得5元，中2无奖。20码候选池仅作辅助参考，不单独推荐投注。",
+  "generated_at": "2026-05-20 17:44:55"
 }

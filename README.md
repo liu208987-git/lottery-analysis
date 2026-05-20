@@ -278,13 +278,13 @@ python run_daily.py pls --top-k 20 --exclude-recent 3
 
 ```bash
 # 拉取历史开奖
-python scripts/kl8_fetcher.py --pages 3
+python scripts/kl8/fetcher.py --pages 3
 
-# 生成候选池预测
-python scripts/kl8_predictor.py
+# 生成候选池 + 选四主推荐
+python scripts/kl8/predictor.py
 
-# 开奖后复盘
-python scripts/kl8_reviewer.py
+# 开奖后复盘（选四命中+盈亏）
+python scripts/kl8/reviewer.py
 
 # 推送
 python scripts/hermes_push.py --mode predict --lottery kl8

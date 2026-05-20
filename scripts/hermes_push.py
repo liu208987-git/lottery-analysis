@@ -737,52 +737,56 @@ def build_review_message() -> str:
 # ═══════════════════════════════════════════
 
 def build_kl8_predict_message() -> str:
-    """生成快乐8预测推送"""
+    """生成快乐8预测推送（选四主推+候选池）"""
     data = read_json(KL8_OUTPUT_DIR / "kl8_predict_latest.json")
     if not data:
         return "🎯 快乐8预测\n暂无预测数据"
 
     pool = data.get("candidate_pool", [])
+    play4 = data.get("recommended_play4", [])
     return "\n".join([
         f"🎯 快乐8预测日报｜{today_str()}",
         "",
         f"预测期号：{data.get('predicted_issue', '?')}",
         f"策略：{data.get('strategy', '?')}",
         "",
-        f"候选20码：",
+        f"【选四主推】{' '.join(f'{n:02d}' for n in play4)}（2元/注）",
+        f"  中4得100元｜中3得5元｜中2无奖",
+        "",
+        f"【20码参考池】",
         f"  {' '.join(f'{n:02d}' for n in pool[:10])}",
         f"  {' '.join(f'{n:02d}' for n in pool[10:])}",
         "",
-        f"分区分布：01-20:{data['zone_distribution']['01-20']}  "
+        f"分区：01-20:{data['zone_distribution']['01-20']}  "
         f"21-40:{data['zone_distribution']['21-40']}  "
         f"41-60:{data['zone_distribution']['41-60']}  "
         f"61-80:{data['zone_distribution']['61-80']}",
         "",
-        "⚠️ 彩票具有随机性，候选池仅基于历史统计生成，不构成投注建议。",
+        "⚠️ 彩票具有随机性，选四推荐仅基于历史统计生成，小额娱乐。",
     ])
 
 
 def build_kl8_review_message() -> str:
-    """生成快乐8复盘推送"""
+    """生成快乐8复盘推送（选四命中+盈亏）"""
     data = read_json(KL8_OUTPUT_DIR / "kl8_review_latest.json")
     if not data:
         return "📊 快乐8复盘\n暂无复盘数据"
 
-    hit = data.get("hit_numbers", [])
+    play4 = data.get("recommended_play4", [])
+    play4_hit = data.get("play4_hit_numbers", [])
     return "\n".join([
         f"📊 快乐8复盘｜{today_str()}",
         "",
         f"期号：{data.get('issue', '?')}  |  {data.get('date', '?')}",
-        f"策略：{data.get('strategy', '?')}",
+        f"策略：{data.get('strategy', '?')}  |  玩法：{data.get('play_type', '?')}",
         "",
-        f"命中：{data['hit_count']}/20（期望~5）",
-        f"命中号码：{' '.join(f'{n:02d}' for n in hit) if hit else '无'}",
-        f"命中率：{data['hit_rate']}",
+        f"【选四主推】{' '.join(f'{n:02d}' for n in play4)}",
+        f"  命中：{data.get('play4_hit_count', 0)}/4 → {data.get('result_level', '?')}",
+        f"  命中号码：{' '.join(f'{n:02d}' for n in play4_hit) if play4_hit else '无'}",
+        f"  奖金：{data.get('prize', 0)}元 | 成本：{data.get('cost', 0)}元",
+        f"  盈亏：{'+' if data.get('profit', 0) > 0 else ''}{data.get('profit', 0)}元",
         "",
-        f"分区命中：01-20:{data['zone_hit']['01-20']}  "
-        f"21-40:{data['zone_hit']['21-40']}  "
-        f"41-60:{data['zone_hit']['41-60']}  "
-        f"61-80:{data['zone_hit']['61-80']}",
+        f"【20码池】命中：{data.get('pool_hit_count', 0)}/20",
         "",
         "⚠️ 彩票具有随机性，以上仅供统计复盘参考。",
     ])
