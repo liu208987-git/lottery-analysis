@@ -208,8 +208,15 @@ def main():
         output_path.write_text(text, encoding='utf-8')
         print(f"[完成] 健康报告已写入: {output_path}", file=sys.stderr)
 
-    # 终端输出（--output 时仍打印）
-    print(text)
+    # 终端输出
+    # 注：no_agent 模式下，source_health.py 的 stdout 会被 cron 脚本原样交付。
+    # 如果已经写了文件（--output），不再 print 到 stdout，避免 JSON 混入推送内容。
+    # 要想看终端输出，不带 --output 单独执行即可。
+    if not args.output:
+        print(text)
+    else:
+        # --output 时只写文件，不污染 stdout
+        pass
 
 
 if __name__ == '__main__':
