@@ -249,3 +249,28 @@ review_summary.py → 终端表现摘要
 ## 文件编码
 
 所有 CSV/JSON/YAML 统一使用 UTF-8-sig（Windows 兼容）。Python open() 必须显式指定 encoding='utf-8' 或 'utf-8-sig'。
+
+## KL8 后续计划
+
+> 以下为 GPT 审查建议中确认有价值但暂不执行的项目。完成后打 ✅。
+
+### P1：近期可做
+
+- [ ] `scripts/kl8/backtest.py` 回测脚本 — 等 review_history ≥ 30 条后建，对比 4 策略表现
+- [ ] `scripts/kl8/rules.py` 统一奖级表 — 选一~选十标准奖金，替代 reviewer 硬编码
+- [ ] predictor 分区均衡约束 — `--zone-balance` 参数，避免候选池过度集中
+- [ ] metrics 命中率加权 — 中四 > 中三 > 中二分值不同
+
+### P2：数据积累后做
+
+- [ ] 多策略对比报告 — v0随机/v1热冷/v2分区/v3遗漏，30天后跑一次完整对比
+- [ ] stats.py 全量遗漏表 — 当前只有 top10
+- [ ] check.py `--stage` 参数 — 区分 predict/review/full 检查场景
+- [ ] 推送模板加奇偶/大小/连号展示 — stats 已有数据，模板可扩展
+
+### 暂不做
+
+- [ ] 深度学习/Transformer 模型（彩票无时间依赖，ML 不优于统计方法）
+- [ ] run_daily.py 接入 KL8（独立模块设计不改）
+- [ ] Streamlit 网页面板（飞书推送已够用）
+- [ ] config/kl8.yaml（常量少，硬编码清晰）
