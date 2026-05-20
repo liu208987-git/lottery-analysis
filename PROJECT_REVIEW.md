@@ -1,6 +1,6 @@
 # 项目审查总览
 
-> 最后更新：2026-05-20 | 版本：v2.10.2
+> 最后更新：2026-05-21 | 版本：v2.13.0
 
 ## 审查结论
 
@@ -9,7 +9,8 @@
 | 代码质量 | 🟢 良好 | 模块化，函数职责清晰 |
 | 评分引擎 | 🟢 v2 | YAML权重+多样性惩罚+冷补偿 |
 | 回测 | 🟢 v2 | Walk-forward + 三策略 + 奖金区分组三/组六 |
-| 数据源 | 🟢 良好 | 排列三API(体彩官方,567重试) ✅ 福彩3D(zhcw主源+eastmoney备用+双源校验) ✅ seed归档 ✅ |
+| 快乐8 | 🟢 新模块 | 独立 `scripts/kl8/` 8文件，官方API抓取+热冷策略+选四盈亏复盘+累计表现 |
+| 数据源 | 🟢 良好 | 排列三API(体彩官方,567重试) ✅ 福彩3D(zhcw主源+eastmoney备用+双源校验) ✅ KL8官方cwl.gov.cn API ✅ |
 | 依赖管理 | 🟢 有 | requirements.txt（不锁版本号，不装无用库） |
 | 文档 | 🟢 完善 | README + CLAUDE.md + PROJECT_REVIEW.md + CHANGELOG.md + HERMES_CONFIG.md |
 | 可视化 | 🟢 完善 | matplotlib + plotly 交互图（走势/遗漏/热力图/Top50分布） |
@@ -41,7 +42,9 @@
 | 遗漏计算伪向量化 | 🟢 低 | 当前 7600 行性能足够，纯向量化改写可选 |
 
 > v2.7 已解决：福彩3D双源(zhcw+eastmoney+双源校验)、组三回归惩罚、API 567重试、回测命中累加、参数验证、PNG中文字体、shell=True、复盘闭环(review_history+review_summary)、多策略权重、Optuna贝叶斯优化、参数稳定性分析
-> v2.10.x 已解决：两段式推送(predict/review分离)、compare_result期号分类(waiting_actual)、push_state防重复、no_agent推送自闭环(run_daily→source_health→push)、--force去重绕过
+> v2.13.x 已解决：晚间复盘完整性闸门(双彩种齐全才推送)、文件锁优化(stale_after拆分)、send_log+文件锁防重
+> v2.11-12.x 已解决：快乐8独立模块(fetch/predict/review/check/metrics/stats/strategy)、选四盈亏复盘、KL8奖金表修正
+> v2.10.x 已解决：两段式推送(predict/review分离)、compare_result期号分类(waiting_actual)、no_agent推送自闭环(run_daily→source_health→push)、--force去重绕过
 
 ### 不采纳的建议（附理由）
 
@@ -58,7 +61,22 @@
 
 ## 架构变更记录
 
-### v2.10.2（当前）
+### v2.13.0（当前）
+- 晚间复盘完整性闸门：双彩种齐全才推送，--complete-only/--final-check 区分波浪
+- 文件锁 stale_after 拆分：等待5s，残留600s后清理
+- review_push.sh 重写：--final 参数 + stderr → 日志文件
+- push_state 口径修正：--stdout 路径不创建 push_state.json，去重靠 send_log + 文件锁
+
+### v2.12.1
+- KL8 全量逐行审查：8 个文件全部通过，奖金表修正(中二=3元/中四=93元)
+- check/metrics/stats/strategy 4 个增强模块就绪
+
+### v2.11.0
+- 快乐8(KL8) 独立模块：`scripts/kl8/` 8 个文件，fetch/predict/review/check/metrics/stats/strategy
+- 选四主推 + 盈亏复盘 + hermes_push --lottery kl8
+- 多策略框架（v0-v3），待 ≥30 天数据后回测
+
+### v2.10.2
 - 14:40 推送自闭环：`lottery_predict_push.sh` 内部自动执行 run_daily → source_health → hermes_push 全流程
 - 预测推送加 `--force`，避免当天去重命中后无输出
 - 推送脚本纳入版本控制（`scripts/push/`）

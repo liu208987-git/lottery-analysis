@@ -2,6 +2,30 @@
 
 > 集中式变更日志，按版本从新到旧排列。单日详细记录见 `changelog/` 目录。
 
+## v2.13.0 (2026-05-21)
+
+- **晚间复盘完整性闸门**：双彩种齐全才推送，--complete-only(21:35/22:05)/--final-check(23:10) 区分波浪
+- **文件锁优化**：acquire_push_lock stale_after 拆分(5s等待/600s过期)，防止并发重复推送
+- **review_push.sh 重写**：支持 --final 参数 + stderr → 日志文件（不再丢弃错误信息）
+- **HERMES_CONFIG push_state 口径修正**：全程改为 send_log.jsonl + 文件锁防重
+- **CLAUDE.md 未解决问题登记**：js-lottery fallback / 推送记录缺失 / push_state 预期行为
+
+## v2.12.1 (2026-05-20)
+
+- **KL8 全量逐行审查**：8 个文件全部 py_compile 通过 + 逻辑审查
+- **奖金表修正**：选四中二=3元（官方规则），中四=93元（官方标准）
+- **增强模块就绪**：check 健康检查、metrics 累计表现、stats 统计指标、strategy 多策略框架
+- **KL8 后续计划清单**：P1 回测/rules/zone-balance，P2 多策略对比/全量遗漏/stage参数
+
+## v2.11.0 (2026-05-20)
+
+- **快乐8(KL8) 独立模块**：`scripts/kl8/` 8 个文件（fetcher/predictor/reviewer/check/metrics/stats/strategy）
+- **数据抓取**：官方 cwl.gov.cn API，20 号码 1-80 严格校验
+- **选四主推**：热号12+冷号8 → 20码候选池 → 近5期稳定度提取4码
+- **盈亏复盘**：选四奖级表(93/5/3元)、奖金/成本/盈亏、pool 命中统计
+- **推送集成**：hermes_push --lottery kl8 复用飞书推送通道
+- **多策略框架**：v0随机/v1热冷/v2分区/v3遗漏回补，待 ≥30 天数据后回测评估
+
 ## v2.10.2 (2026-05-20)
 
 - **推送自闭环**：`lottery_predict_push.sh` 内部自动执行 run_daily → source_health → hermes_push 全流程
