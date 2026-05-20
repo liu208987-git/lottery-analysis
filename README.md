@@ -284,6 +284,7 @@ python run_daily.py pls --top-k 20 --exclude-recent 3
 
 ## 更新日志
 
+- **v2.10.3** (2026-05-20)：复盘字段对齐——review_history 新增命中范围/命中号码/命中排名/Top5直选/Top5组选 5 个字段；hermes_push 复盘按实开期号读 `*_predict_{issue}.json` 而非 latest；命中时展示具体号码+排名+范围，Top5 标注为"参考"
 - **v2.10.2** (2026-05-20)：14:40 推送自闭环——lottery_predict_push.sh 内部自动执行 run_daily → source_health → hermes_push 全流程，不再依赖 14:30 预生成；推送加 `--force` 避免去重误拦截；推送脚本纳入版本控制（`scripts/push/`）；文档同步 no_agent 审批说明
 - **v2.10.1** (2026-05-19)：推送链路加固——推送类 cron 改为 no_agent 模式绕过 Tirith glibc 兼容问题；lottery_predict_push.sh / lottery_review_push.sh 脚本化；HERMES_CONFIG.md 同步 no_agent 配置；详细讨论见 `changelog/2026-05-19-fix-tirith-cron-push.md`
 - **v2.10.0** (2026-05-19)：两段式推送 predict/review 分离——hermes_push 新增 predict(预测)/review(复盘)两种模式；compare_result 按期号查找预测文件 + waiting_actual 状态分类(exit 0 不覆盖latest)；HERMES_CONFIG 6 cron job 结构化配置；push_state.json 防重复推送

@@ -280,7 +280,7 @@ python scripts/data_fetcher.py --cb-status
 
 | 文件 | 来源 | 内容 |
 |------|------|------|
-| `output/reviews/review_history.csv` | `daily_review.py` | 复盘记录（含 strategy 字段） |
+| `output/reviews/review_history.csv` | `daily_review.py` | 复盘记录（含命中范围/号码/排名 + Top5直选/组选） |
 | `output/reports/{lottery}_compare_latest.json` | `compare_result.py` | 最新对比结果 |
 | `output/reports/{lottery}_compare_waiting.json` | `compare_result.py` | 等待状态（pred > actual） |
 | `output/reports/source_health.json` | `source_health.py` | 健康报告 |
