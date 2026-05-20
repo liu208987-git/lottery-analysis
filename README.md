@@ -15,8 +15,8 @@ pip install -r requirements.txt
 
 # 2. 更新数据
 python scripts/data_fetcher.py --all
-#     ⚠️ 福彩3D自动抓取可能因 cwl.gov.cn WAF 返回 403→空数据
-#     如果 d3 未获取到数据，参考下方「福彩3D数据说明」
+#     ✅ 福彩3D通过 eastmoney.com 自动抓取（主源），数据正常获取
+#     旧 cwl.gov.cn WAF 403 问题已由 eastmoney 主源解决
 
 # 3. 完整预测流程（排列三）
 python scripts/data_fetcher.py --lottery pls
@@ -132,11 +132,12 @@ lottery-analysis/
 | 彩种 | 源 | 方法 |
 |------|-----|------|
 | 排列三（体彩） | 体彩官方API | `data_fetcher.py` 自动拉取 JSON | ✅ 已验证可用 |
-| 福彩3D | kaggle/konglr历史CSV | 需手动准备 | ❌ API有WAF 403 |
+| 福彩3D | 东方财富(eastmoney) | `data_fetcher.py` 自动拉取 JSON（主源） | ✅ 已验证可用 |
 
-### 福彩3D手动数据准备
+### 福彩3D手动数据准备（备用）
 
-> ⚠️ **当前 `data_fetcher.py --lottery d3` 可能返回空数据**（cwl.gov.cn WAF 403）。
+> ✅ **`data_fetcher.py --lottery d3` 默认通过 eastmoney.com 自动拉取**，数据正常获取。
+> 以下仅作为 eastmoney 异常时的备用方案。
 
 如果自动抓取失败，请手动准备 `data/raw/d3_raw.csv`：
 
@@ -270,6 +271,7 @@ python run_daily.py pls --top-k 20 --exclude-recent 3
 
 ## 更新日志
 
+- **v2.10.1** (2026-05-19)：推送链路加固——推送类 cron 改为 no_agent 模式绕过 Tirith glibc 兼容问题；lottery_predict_push.sh / lottery_review_push.sh 脚本化；HERMES_CONFIG.md 同步 no_agent 配置；详细讨论见 `changelog/2026-05-19-fix-tirith-cron-push.md`
 - **v2.10.0** (2026-05-19)：两段式推送 predict/review 分离——hermes_push 新增 predict(预测)/review(复盘)两种模式；compare_result 按期号查找预测文件 + waiting_actual 状态分类(exit 0 不覆盖latest)；HERMES_CONFIG 6 cron job 结构化配置；push_state.json 防重复推送
 - **v2.7.1** (2026-05-16)：Hermes cron 适配——新增 `daily_review.py` 一键复盘脚本；`compare_result.py` 支持 `--strategy` 多策略对比；`review_history.csv` 增加策略列；回测 ROI 拆分直选/组选；`save_incremental` 空数据保护
 - **v2.7** (2026-05-16)：复盘闭环 + 数据源加固 + 工具链完善——review_history.csv 长期复盘累加、review_summary.py 表现摘要、多策略权重(conservative/diversity)、tune_weights.py 随机搜索+Optuna贝叶斯优化+参数稳定性分析；东方财富福彩3D接入(50条/页)+双源校验+主源失败自动fallback；CLAUDE.md项目指令、Makefile一键命令、data_sources.yaml配置外部化
