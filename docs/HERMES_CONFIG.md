@@ -1,7 +1,7 @@
 # Hermes 定时任务配置
 
 > 此文件供 Hermes 读取并自动配置定时任务。修改此文件后，同步至 Hermes 平台生效。
-> 最后更新：2026-05-18（v2.10.0 两段式推送：predict + review 分离）
+> 最后更新：2026-05-20（v2.11.0 推送链路加固：lottery_predict_push.sh 内全流程自闭环）
 
 ---
 
@@ -27,9 +27,11 @@ cron_mode = allow
 
 > 所有任务 working_directory = 项目根目录
 > cd 路径根据 Hermes 实际环境替换
+> ⚠️ 14:30 和 14:35 为辅助预生成，即使失败也不影响 14:40 推送
+>    因为 14:40 的推送脚本（lottery_predict_push.sh）会先自检预测数据，若过时或缺失则自动补跑 run_daily.py
 
 ```
-# ── 下午预测链路（14:30 → 14:40）──
+# ── 下午预测链路（14:30 → 14:35 → 14:40）──
 
 [task-predict-generate]
 cron = 30 14 * * *
@@ -47,10 +49,12 @@ description = 生成数据源健康报告
 
 [task-predict-push]
 cron = 40 14 * * *
-command = cd /path/to/lottery-analysis && python scripts/hermes_push.py --mode predict --stdout
-on_failure = stop
+command = # no_agent 模式，通过 lottery_predict_push.sh 脚本执行
+         # 脚本内部自动执行：run_daily → source_health → hermes_push --mode predict
+         # 即使 14:30 预测未生成也不影响推送
+on_failure = continue
 deliver = origin
-description = 推送今日预测到飞书
+description = 推送今日预测到飞书（自闭环：自动重新跑预测再推送）
 
 # ── 晚间复盘链路（21:35 / 22:05 / 23:10 三波补偿）──
 
