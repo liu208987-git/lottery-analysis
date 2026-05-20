@@ -251,11 +251,12 @@ python run_daily.py pls --top-k 20 --exclude-recent 3
 
 ### 手动流程
 
-| 时间 | 操作 | 说明 |
-|:---|:-----|:-----|
-| 下午 | `python run_daily.py --strategy all --top-k 30` | 生成今晚预测 |
-| 下午 | `python scripts/hermes_push.py --mode predict` | 推送预测（不含复盘） |
-| 21:35+ | `python scripts/daily_review.py && python scripts/hermes_push.py --mode review` | 开奖后复盘+推送（不含预测） |
+| 时间 | 操作 | 模式 | 说明 |
+|:---|:-----|:----:|:-----|
+| 14:30 | `python run_daily.py --strategy all --top-k 30` | agent（辅助） | 预生成预测（失败不影响后续） |
+| 14:35 | `python scripts/source_health.py --json` | agent（辅助） | 健康报告（失败不影响后续） |
+| 14:40 | **自动：** `scripts/push/lottery_predict_push.sh` | **no_agent** ✅ | 自闭环：先 run_daily → source_health → 推送预测 |
+| 21:35+ | **自动：** `scripts/push/lottery_review_push.sh` | **no_agent** ✅ | 开奖后复盘+推送（三波补偿自动去重） |
 
 > 两段式推送：预测和复盘分开推送，避免期号混淆。详见 [docs/HERMES_CONFIG.md](docs/HERMES_CONFIG.md)。
 
@@ -271,6 +272,7 @@ python run_daily.py pls --top-k 20 --exclude-recent 3
 
 ## 更新日志
 
+- **v2.10.2** (2026-05-20)：14:40 推送自闭环——lottery_predict_push.sh 内部自动执行 run_daily → source_health → hermes_push 全流程，不再依赖 14:30 预生成；推送加 `--force` 避免去重误拦截；推送脚本纳入版本控制（`scripts/push/`）；文档同步 no_agent 审批说明
 - **v2.10.1** (2026-05-19)：推送链路加固——推送类 cron 改为 no_agent 模式绕过 Tirith glibc 兼容问题；lottery_predict_push.sh / lottery_review_push.sh 脚本化；HERMES_CONFIG.md 同步 no_agent 配置；详细讨论见 `changelog/2026-05-19-fix-tirith-cron-push.md`
 - **v2.10.0** (2026-05-19)：两段式推送 predict/review 分离——hermes_push 新增 predict(预测)/review(复盘)两种模式；compare_result 按期号查找预测文件 + waiting_actual 状态分类(exit 0 不覆盖latest)；HERMES_CONFIG 6 cron job 结构化配置；push_state.json 防重复推送
 - **v2.7.1** (2026-05-16)：Hermes cron 适配——新增 `daily_review.py` 一键复盘脚本；`compare_result.py` 支持 `--strategy` 多策略对比；`review_history.csv` 增加策略列；回测 ROI 拆分直选/组选；`save_incremental` 空数据保护

@@ -8,29 +8,33 @@
 
 ## Hermes cron 定时任务
 
-项目通过 Hermes 定时执行，不依赖 GitHub Actions。
+项目通过 Hermes 定时执行，不依赖 GitHub Actions。所有推送类任务（14:40 / 21:35 / 22:05 / 23:10）均为 **no_agent 模式**，绕过 Tirith 安全审批链，不消耗 API token。
 
-### 下午预测链路（14:30 → 14:40）
+### 下午预测链路（14:30 → 14:35 → 14:40）
 
 > 两段式推送：下午推送预测 + 晚间推送复盘，详见 [docs/HERMES_CONFIG.md](docs/HERMES_CONFIG.md)
+> 
+> ⚠️ 14:30 和 14:35 为辅助预生成。即使失败，14:40 的 `lottery_predict_push.sh` 会自动补跑全流程再推送。
 
-| 时间 | 命令 | 说明 | 失败处理 |
-|------|------|------|:--:|
-| 14:30 | `python run_daily.py --strategy all --top-k 30` | 生成今日预测（数据抓取→特征→统计→三策略评分） | 必须成功 |
-| 14:35 | `python scripts/source_health.py --json --output output/reports/source_health.json` | 生成数据源健康报告 | 允许失败 |
-| 14:40 | `python scripts/hermes_push.py --mode predict --stdout` | 推送预测（只含预测，不含复盘） | 必须成功 / **deliver=origin** |
+| 时间 | 命令 | 说明 | 模式 | 审批 |
+|------|------|------|:----:|:----:|
+| 14:30 | `python run_daily.py --strategy all --top-k 30` | 预生成预测（辅助） | agent | ⚠️ 有 |
+| 14:35 | `python scripts/source_health.py --json --output output/reports/source_health.json` | 健康报告（辅助） | agent | ⚠️ 有 |
+| 14:40 | `scripts/push/lottery_predict_push.sh`（自闭环） | **run_daily + source_health + hermes_push --force** | **no_agent** | **✅ 无** |
 
-> `hermes_push.py --mode predict` 只读取预测 JSON，不读 review_history，不做期号比较。
+> `lottery_predict_push.sh` 内部依次执行：run_daily → source_health → hermes_push --mode predict --stdout --force。
+> 加 `--force` 避免当天因去重命中后无输出。
 
 ### 晚间复盘链路（21:35 / 22:05 / 23:10 三波补偿）
 
-> 每波执行 `daily_review.py && hermes_push.py --mode review`。`push_state.json` 防重复推送。
+> 每波执行 `lottery_review_push.sh`（内部：daily_review.py && hermes_push.py --mode review --stdout）。
+> `push_state.json` 防重复推送。复盘推送**不加 --force**，避免多波补偿重复推送。
 
-| 时间 | 命令 | 说明 |
-|------|------|------|
-| 21:35 | `python scripts/daily_review.py && python scripts/hermes_push.py --mode review --stdout` | 初次复盘+推送 |
-| 22:05 | 同上 | 补偿复盘（自动去重） |
-| 23:10 | 同上 | 最后兜底 |
+| 时间 | 命令 | 模式 | 审批 |
+|------|------|:----:|:----:|
+| 21:35 | `scripts/push/lottery_review_push.sh` | **no_agent** ✅ | **无** |
+| 22:05 | 同上（push_state.json 自动去重） | **no_agent** ✅ | **无** |
+| 23:10 | 同上（push_state.json 自动去重） | **no_agent** ✅ | **无** |
 
 > `daily_review.py` 内部依次执行：data_fetcher → feature_engine → compare_result(三策略) → review_summary。
 > `hermes_push.py --mode review` 只读 review_history + compare JSON，不含预测。compare_result 返回 `waiting_actual` 时跳过推送不报错。
@@ -55,7 +59,10 @@ lottery-analysis/
 │   ├── visualize.py          # 走势图/热力图（matplotlib + plotly）
 │   ├── issue_utils.py         # 期号标准化（PLS/D3格式互转）
 │   ├── source_health.py       # 数据源健康报告
-│   └── hermes_push.py         # 两段式推送（predict模式=预测 / review模式=复盘+近期表现）
+│   ├── hermes_push.py         # 两段式推送（predict模式=预测 / review模式=复盘+近期表现）
+│   └── push/                   # Hermes cron no_agent 推送脚本
+│       ├── lottery_predict_push.sh  # 预测推送（自闭环：run_daily→source_health→push）
+│       └── lottery_review_push.sh   # 复盘推送（daily_review→push）
 ├── rules/
 │   ├── scoring_weights.yaml              # 默认权重
 │   ├── scoring_weights_conservative.yaml # 稳健策略
