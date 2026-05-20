@@ -277,14 +277,17 @@ python run_daily.py pls --top-k 20 --exclude-recent 3
 快乐8 每期开 20 个号码（1-80）。当前使用**热号 12 + 冷号 8**混合策略生成 20 码候选池，复盘统计命中数（随机期望约 5/20）。
 
 ```bash
-# 拉取历史开奖
+# 数据 + 预测 + 统计
 python scripts/kl8/fetcher.py --pages 3
-
-# 生成候选池 + 选四主推荐
 python scripts/kl8/predictor.py
+python scripts/kl8/stats.py
 
-# 开奖后复盘（选四命中+盈亏）
+# 开奖后复盘 + 累计表现
 python scripts/kl8/reviewer.py
+python scripts/kl8/metrics.py
+
+# 全链路健康检查
+python scripts/kl8/check.py
 
 # 推送
 python scripts/hermes_push.py --mode predict --lottery kl8

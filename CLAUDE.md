@@ -45,11 +45,13 @@
 | 时间 | 命令 | 说明 |
 |------|------|------|
 | 14:30 | `python scripts/kl8/fetcher.py && python scripts/kl8/predictor.py` | 拉取历史开奖 → 生成20码池+选四主推 |
+| 14:30 | `python scripts/kl8/stats.py` | 生成统计指标（奇偶/大小/连号/冷热） |
 | 14:40 | `python scripts/hermes_push.py --mode predict --lottery kl8 --stdout` | 推送快乐8预测 |
-| 21:35 | `python scripts/kl8/fetcher.py && python scripts/kl8/reviewer.py` | 拉最新开奖 → 选四命中+盈亏复盘 |
-| 21:35 | `python scripts/hermes_push.py --mode review --lottery kl8 --stdout` | 推送快乐8复盘 |
+| 21:35 | `python scripts/kl8/fetcher.py && python scripts/kl8/reviewer.py && python scripts/kl8/metrics.py` | 拉最新开奖 → 选四命中+盈亏复盘 → 更新累计表现 |
+| 21:35 | `python scripts/hermes_push.py --mode review --lottery kl8 --stdout` | 推送快乐8复盘（含累计表现） |
+| 22:00 | `python scripts/kl8/check.py` | 全链路健康检查 |
 
-> 快乐8每期开20个号码(1-80)。策略：热号12+冷号8混合生成20码候选池。复盘计算候选池∩开奖号码的命中数，随机期望约5/20。
+> 快乐8每期开20个号码(1-80)。策略：热号12+冷号8混合生成20码池 + 选四主推。复盘计算命中数/奖金/盈亏。累计表现自动追踪近N期。
 
 ## 项目结构
 
@@ -71,10 +73,14 @@ lottery-analysis/
 │   ├── issue_utils.py         # 期号标准化（PLS/D3格式互转）
 │   ├── source_health.py       # 数据源健康报告
 │   ├── hermes_push.py         # 两段式推送（支持 --lottery pls/d3/kl8）
-│   ├── kl8/                    # 快乐8模块
-│   │   ├── fetcher.py          # 官方API数据抓取 + 校验（1-80选20）
-│   │   ├── predictor.py        # 候选池预测 + 选四主推荐
-│   │   └── reviewer.py         # 复盘（选四命中+盈亏+候选池交集）
+│   ├── kl8/                    # 快乐8独立模块
+│   │   ├── fetcher.py          # 官方API抓取 + 校验 + --check
+│   │   ├── predictor.py        # 20码池 + 选四主推
+│   │   ├── reviewer.py         # 选四命中/盈亏/期号精确匹配
+│   │   ├── check.py            # 全链路5项健康检查
+│   │   ├── metrics.py          # 近N期累计成本/奖金/盈亏
+│   │   ├── stats.py            # 奇偶/大小/连号/和值/冷热统计
+│   │   └── strategy.py         # 4策略统一接口（暂不启用）
 │   └── push/                   # Hermes cron no_agent 推送脚本
 │       ├── lottery_predict_push.sh  # 预测推送（自闭环：run_daily→source_health→push）
 │       └── lottery_review_push.sh   # 复盘推送（daily_review→push）
@@ -170,13 +176,24 @@ python scripts/hermes_push.py --mode daily               # 旧版混合日报（
 ### 快乐8
 
 ```bash
-python scripts/kl8/fetcher.py                      # 拉取历史开奖（cwl.gov.cn官方API）
-python scripts/kl8/fetcher.py --pages 5            # 拉取5页(150期)
-python scripts/kl8/fetcher.py --check              # 数据完整性检查
-python scripts/kl8/predictor.py                    # 热12+冷8策略→20码池+选四主推
-python scripts/kl8/reviewer.py                     # 选四命中+盈亏+候选池复盘
-python scripts/hermes_push.py --mode predict --lottery kl8   # 推送快乐8预测
-python scripts/hermes_push.py --mode review --lottery kl8    # 推送快乐8复盘
+# 数据 + 预测
+python scripts/kl8/fetcher.py --pages 3            # 拉取历史开奖
+python scripts/kl8/predictor.py                    # 生成20码池+选四主推
+python scripts/kl8/stats.py                        # 统计指标（奇偶/大小/连号）
+
+# 复盘
+python scripts/kl8/reviewer.py                     # 选四命中+盈亏复盘
+python scripts/kl8/metrics.py                      # 更新累计表现
+
+# 健康检查
+python scripts/kl8/check.py                        # 全链路5项检查
+
+# 推送
+python scripts/hermes_push.py --mode predict --lottery kl8   # 推送预测
+python scripts/hermes_push.py --mode review --lottery kl8    # 推送复盘（含累计表现）
+
+# 多策略（暂不启用，供回测用）
+python -c "from scripts.kl8.strategy import list_strategies; print(list_strategies())"
 ```
 
 ### 期号工具
@@ -226,7 +243,7 @@ review_summary.py → 终端表现摘要
 7. **期号不匹配分类处理**：`pred>actual` 标记 `waiting_actual`(exit 0)，写 `*_waiting.json` 不覆盖 latest；`pred<actual` 视为真错误(exit 1)
 8. **复盘命中按范围分层**：review_history 记录 `命中范围(Top5/Top10/Top30)` + `命中号码` + `命中排名` + `Top5直选/组选`，hermes_push 复盘推送口径与预测一致，命中时展示具体号码和排名，Top5 标注为"参考"
 9. **不做 LSTM/ML 直接预测号码**：彩票无时间依赖，ML 不优于统计方法
-10. **快乐8候选池不参与主评分**：独立模块（kl8_fetcher/predictor/reviewer），热号+冷号混合策略，与排列三/福彩3D 互不干扰
+10. **快乐8独立模块不接入主流程**：`scripts/kl8/` 7个文件（fetcher/predictor/reviewer/check/metrics/stats/strategy），热号+冷号策略 + 选四主推 + 盈亏复盘 + 累计表现，与 PLS/D3 互不干扰。多策略框架已就绪，待 ≥30 天数据后回测评估
 11. **号码始终当字符串**：防止前导零丢失（040→40）
 
 ## 文件编码

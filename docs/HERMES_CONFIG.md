@@ -1,7 +1,7 @@
 # Hermes 定时任务配置
 
 > 此文件供 Hermes 读取并自动配置定时任务。修改此文件后，同步至 Hermes 平台生效。
-> 最后更新：2026-05-20（v2.11.2：新增快乐8 KL8 数据抓取+预测+复盘+推送）
+> 最后更新：2026-05-20（v2.12.0：KL8 全链路健康检查 + 累计表现 + 多策略框架）
 
 ---
 
@@ -85,10 +85,10 @@ description = 最后兜底复盘推送（push_state 自动去重）
 
 [task-kl8-predict]
 cron = 30 14 * * *
-command = cd /home/admin/bendi/lottery-analysis && .venv/bin/python scripts/kl8/fetcher.py && .venv/bin/python scripts/kl8/predictor.py
+command = cd /home/admin/bendi/lottery-analysis && .venv/bin/python scripts/kl8/fetcher.py && .venv/bin/python scripts/kl8/predictor.py && .venv/bin/python scripts/kl8/stats.py
 on_failure = continue
 deliver = local
-description = 快乐8：拉取历史开奖 + 生成20码候选池
+description = 快乐8：拉取历史开奖 + 20码池+选四 + 统计指标
 
 [task-kl8-predict-push]
 cron = 40 14 * * *
@@ -96,15 +96,22 @@ command = cd /home/admin/bendi/lottery-analysis && .venv/bin/python scripts/herm
 on_failure = continue
 deliver = origin
 no_agent = true
-description = 快乐8：推送20码候选池预测
+description = 快乐8：推送20码池+选四预测
 
 [task-kl8-review]
 cron = 35 21 * * *
-command = cd /home/admin/bendi/lottery-analysis && .venv/bin/python scripts/kl8/fetcher.py && .venv/bin/python scripts/kl8/reviewer.py && .venv/bin/python scripts/hermes_push.py --mode review --lottery kl8 --stdout
+command = cd /home/admin/bendi/lottery-analysis && .venv/bin/python scripts/kl8/fetcher.py && .venv/bin/python scripts/kl8/reviewer.py && .venv/bin/python scripts/kl8/metrics.py && .venv/bin/python scripts/hermes_push.py --mode review --lottery kl8 --stdout
 on_failure = continue
 deliver = origin
 no_agent = true
-description = 快乐8：拉取最新开奖+复盘命中数+推送
+description = 快乐8：拉取最新开奖+选四复盘+累计表现+推送
+
+[task-kl8-check]
+cron = 0 22 * * *
+command = cd /home/admin/bendi/lottery-analysis && .venv/bin/python scripts/kl8/check.py
+on_failure = continue
+deliver = local
+description = 快乐8：全链路健康检查（非0 exit=异常）
 ```
 
 ---
@@ -146,9 +153,11 @@ Hermes 执行环境需配置以下变量：
       └── 已推送过 → 自动去重跳过
 
 快乐8（独立模块）：
-  14:30 → kl8_fetcher + kl8_predictor（20码候选池）
-  14:40 → hermes_push --mode predict --lottery kl8
-  21:35 → kl8_fetcher + kl8_reviewer + push（复盘命中数）
+  14:30 → fetcher + predictor + stats（数据+预测+统计）
+  14:40 → hermes_push --mode predict --lottery kl8（推送预测）
+  21:35 → fetcher + reviewer + metrics（复盘+累计表现）
+  21:35 → hermes_push --mode review --lottery kl8（推送复盘）
+  22:00 → check（全链路健康检查）
 ```
 
 **核心改进：**
