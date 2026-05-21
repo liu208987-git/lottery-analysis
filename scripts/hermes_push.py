@@ -766,9 +766,18 @@ def build_kl8_predict_message() -> str:
 
 def build_kl8_review_message() -> str:
     """生成快乐8复盘推送（选四命中+盈亏）"""
+    pred = read_json(KL8_OUTPUT_DIR / "kl8_predict_latest.json")
     data = read_json(KL8_OUTPUT_DIR / "kl8_review_latest.json")
     if not data:
         return "📊 快乐8复盘\n暂无复盘数据"
+
+    # 闸门：复盘期号必须等于预测期号，否则不推送（防止旧复盘被误推）
+    target = str(pred.get("predicted_issue", ""))
+    review_issue = str(data.get("issue", ""))
+    if review_issue != target:
+        print(f"[WAIT] KL8复盘未就绪：预测{target}，复盘{review_issue or '无'}",
+              file=sys.stderr)
+        return ""
 
     play4 = data.get("recommended_play4", [])
     play4_hit = data.get("play4_hit_numbers", [])
