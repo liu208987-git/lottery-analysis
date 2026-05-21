@@ -53,7 +53,11 @@
 
 > 快乐8每期开20个号码(1-80)。策略：热号12+冷号8混合生成20码池 + 选四主推。复盘计算命中数/奖金/盈亏。累计表现自动追踪近N期。
 >
-> **推送脚本维护说明：** `~/.hermes/scripts/` 下的 `kl8_*.sh`、`lottery_*.sh` 均为指向项目的软链接。修改脚本只需改项目 `scripts/push/` 下的文件，cron 自动使用新版。无需再手动拷贝。
+> **推送脚本维护说明：** 修改 `scripts/push/` 下的脚本后，需要手动复制到 `~/.hermes/scripts/` 才能生效：
+> ```bash
+> cp scripts/push/*.sh ~/.hermes/scripts/
+> ```
+> Hermes no_agent 模式要求脚本文件必须在 `~/.hermes/scripts/` 目录内（不支持软链接指向外部）。
 
 ## 项目结构
 
