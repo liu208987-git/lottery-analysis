@@ -40,18 +40,20 @@
 > `hermes_push.py --mode review` 只读 review_history + compare JSON，不含预测。compare_result 返回 `waiting_actual` 时跳过推送不报错。
 > 推送失败时内容落盘 `output/push/pending_*_report.md`，可手动 `--force` 补发。
 
-### 快乐8候选池链路（14:30 预测 / 21:35 复盘）
+### 快乐8候选池链路（自闭环 shell 脚本推送）
+
+> KL8 独立推送，不接入 run_daily.py，不和 PLS/D3 混合。
+> 所有推送类任务通过 `~/.hermes/scripts/` 下的软链接指向项目 `scripts/push/`，更新项目脚本后自动生效。
 
 | 时间 | 命令 | 说明 |
 |------|------|------|
-| 14:30 | `python scripts/kl8/fetcher.py && python scripts/kl8/predictor.py` | 拉取历史开奖 → 生成20码池+选四主推 |
-| 14:30 | `python scripts/kl8/stats.py` | 生成统计指标（奇偶/大小/连号/冷热） |
-| 14:40 | `python scripts/hermes_push.py --mode predict --lottery kl8 --stdout` | 推送快乐8预测 |
-| 21:35 | `python scripts/kl8/fetcher.py && python scripts/kl8/reviewer.py && python scripts/kl8/metrics.py` | 拉最新开奖 → 选四命中+盈亏复盘 → 更新累计表现 |
-| 21:35 | `python scripts/hermes_push.py --mode review --lottery kl8 --stdout` | 推送快乐8复盘（含累计表现） |
-| 22:00 | `python scripts/kl8/check.py` | 全链路健康检查 |
+| 14:50 | `bash scripts/push/kl8_predict_push.sh` | 自闭环：fetcher → predictor → stats → hermes_push |
+| 22:00 | `python scripts/kl8/check.py` | 全链路健康检查（agent 任务，deliver=local） |
+| 22:15 | `bash scripts/push/kl8_review_push.sh` | 自闭环：fetcher → reviewer → metrics → hermes_push（错开22:05避免冲突） |
 
 > 快乐8每期开20个号码(1-80)。策略：热号12+冷号8混合生成20码池 + 选四主推。复盘计算命中数/奖金/盈亏。累计表现自动追踪近N期。
+>
+> **推送脚本维护说明：** `~/.hermes/scripts/` 下的 `kl8_*.sh`、`lottery_*.sh` 均为指向项目的软链接。修改脚本只需改项目 `scripts/push/` 下的文件，cron 自动使用新版。无需再手动拷贝。
 
 ## 项目结构
 

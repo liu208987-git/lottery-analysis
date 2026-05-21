@@ -1,7 +1,7 @@
 # Hermes 定时任务配置
 
 > 此文件供 Hermes 读取并自动配置定时任务。修改此文件后，同步至 Hermes 平台生效。
-> 最后更新：2026-05-21（v2.13.0：晚间复盘两段式推送 + 双彩种完整性闸门 + 文件锁优化）
+> 最后更新：2026-05-21（v2.14.0：推送脚本统一软链接 + KL8 推送链路修复 + KRON 任务梳理）
 
 ---
 
@@ -23,12 +23,13 @@ FEISHU_WEBHOOK_URL = （你的飞书机器人 webhook 地址）
 cron_mode = allow
 ```
 
-### 三、定时任务（6 个，替换旧的 7 个）
+### 三、定时任务（9 个任务）
 
-> 所有任务 working_directory = 项目根目录（/home/admin/bendi/lottery-analysis）
+> 所有推送类任务均使用 `~/.hermes/scripts/` 下的软链接指向 `scripts/push/`，项目更新脚本后自动生效
 > 14:30 和 14:35 为辅助预生成，即使失败也不影响 14:40 推送
-> 14:40 推送任务为 no_agent=true 模式，绕过安全审批链
-> 晚间复盘任务同样 no_agent=true，脚本内部始终重新生成，不 cat 旧文件
+> 14:40/14:50/21:35/22:05/22:15/23:10 推送任务均为 no_agent=true 模式，绕过安全审批链
+> 晚间复盘脚本在 23 点后自动启用 --final-check 兜底（无需传参）
+> KL8 复盘错开到 22:15 避免与 PLS/D3 同时跑
 
 ```
 # ── 下午预测链路（14:30 → 14:35 → 14:40）──
@@ -81,24 +82,16 @@ deliver = origin
 no_agent = true
 description = 复盘兜底：齐全推完整复盘，未齐推无法复盘通知
 
-# ── 快乐8 KL8（14:30 预测 + 21:35 复盘）──
+# ── 快乐8 KL8（14:50 预测 + 22:00 检查 + 22:15 复盘）──
 # KL8 独立 push shell 脚本，不混入 PLS/D3 主流程
 
 [task-kl8-predict-push]
-cron = 40 14 * * *
+cron = 50 14 * * *
 command = cd /home/admin/bendi/lottery-analysis && bash scripts/push/kl8_predict_push.sh
 on_failure = continue
 deliver = origin
 no_agent = true
 description = 快乐8预测推送：自闭环 fetcher→predictor→stats→推送
-
-[task-kl8-review-push]
-cron = 35 21 * * *
-command = cd /home/admin/bendi/lottery-analysis && bash scripts/push/kl8_review_push.sh
-on_failure = continue
-deliver = origin
-no_agent = true
-description = 快乐8复盘推送：自闭环 fetcher→reviewer→metrics→推送
 
 [task-kl8-check]
 cron = 0 22 * * *
@@ -106,6 +99,14 @@ command = cd /home/admin/bendi/lottery-analysis && .venv/bin/python scripts/kl8/
 on_failure = continue
 deliver = local
 description = 快乐8：全链路健康检查（非0 exit=异常）
+
+[task-kl8-review-push]
+cron = 15 22 * * *
+command = cd /home/admin/bendi/lottery-analysis && bash scripts/push/kl8_review_push.sh
+on_failure = continue
+deliver = origin
+no_agent = true
+description = 快乐8复盘推送：自闭环 fetcher→reviewer→metrics→推送（错开22:05避免冲突）
 ```
 
 ---
@@ -137,21 +138,20 @@ Hermes 执行环境需配置以下变量：
 下午（14:30 ~ 14:40）：预测推送
   ├── 14:30 run_daily → 抓数据 + 特征 + 统计 + 三策略评分
   ├── 14:35 source_health → 健康报告
-  └── 14:40 hermes_push --mode predict → 只含预测数据，不含复盘
+  └── 14:40 lottery_predict_push.sh（自闭环）→ 内含 run_daily + source_health + hermes_push --force
+      └── 不读 review_history，只含预测数据，不含复盘
 
 晚上（21:35 / 22:05 / 23:10）：复盘推送
   ├── daily_review → 拉取开奖 + 特征 + compare_result
-  └── hermes_push --mode review → 两彩种齐全才推送
-      ├── --complete-only (21:35/22:05): 未齐静默跳过
-      ├── --final-check (23:10): 未齐推送兜底通知
+  └── lottery_review_push.sh（自闭环）→ 内含 daily_review + hermes_push --mode review
+      ├── 21:35/22:05: --complete-only 模式，未齐静默跳过
+      ├── 23:10: --final-check 模式，未齐推送兜底通知（脚本自动检测时间）
       └── send_log + 文件锁 防重复推送
 
-快乐8（独立模块）：
-  14:30 → fetcher + predictor + stats（数据+预测+统计）
-  14:40 → hermes_push --mode predict --lottery kl8（推送预测）
-  21:35 → fetcher + reviewer + metrics（复盘+累计表现）
-  21:35 → hermes_push --mode review --lottery kl8（推送复盘）
-  22:00 → check（全链路健康检查）
+快乐8（独立模块，自闭环 shell 脚本）：
+  14:50 → kl8_predict_push.sh → fetcher + predictor + stats + hermes_push
+  22:00 → check.py → 全链路健康检查（agent 任务）
+  22:15 → kl8_review_push.sh → fetcher + reviewer + metrics + hermes_push
 ```
 
 **核心改进：**

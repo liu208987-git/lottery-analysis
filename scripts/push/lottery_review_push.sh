@@ -9,9 +9,14 @@ set -e
 cd /home/admin/bendi/lottery-analysis
 VENV=".venv/bin/python"
 
-FINAL_FLAG="--complete-only"
+# 23:10 的 cron 无法传参（no_agent script 模式），改为自动检测时间
+# 23 点后自动启用 --final-check
 if [ "${1:-}" = "--final" ]; then
     FINAL_FLAG="--final-check"
+elif [ "$(date +%H)" -ge 23 ]; then
+    FINAL_FLAG="--final-check"
+else
+    FINAL_FLAG="--complete-only"
 fi
 
 LOG_DIR="logs"
