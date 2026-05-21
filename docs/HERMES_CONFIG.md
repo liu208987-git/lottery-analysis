@@ -82,29 +82,23 @@ no_agent = true
 description = 复盘兜底：齐全推完整复盘，未齐推无法复盘通知
 
 # ── 快乐8 KL8（14:30 预测 + 21:35 复盘）──
-
-[task-kl8-predict]
-cron = 30 14 * * *
-command = cd /home/admin/bendi/lottery-analysis && .venv/bin/python scripts/kl8/fetcher.py && .venv/bin/python scripts/kl8/predictor.py && .venv/bin/python scripts/kl8/stats.py
-on_failure = continue
-deliver = local
-description = 快乐8：拉取历史开奖 + 20码池+选四 + 统计指标
+# KL8 独立 push shell 脚本，不混入 PLS/D3 主流程
 
 [task-kl8-predict-push]
 cron = 40 14 * * *
-command = cd /home/admin/bendi/lottery-analysis && .venv/bin/python scripts/hermes_push.py --mode predict --lottery kl8 --stdout
+command = cd /home/admin/bendi/lottery-analysis && bash scripts/push/kl8_predict_push.sh
 on_failure = continue
 deliver = origin
 no_agent = true
-description = 快乐8：推送20码池+选四预测
+description = 快乐8预测推送：自闭环 fetcher→predictor→stats→推送
 
-[task-kl8-review]
+[task-kl8-review-push]
 cron = 35 21 * * *
-command = cd /home/admin/bendi/lottery-analysis && .venv/bin/python scripts/kl8/fetcher.py && .venv/bin/python scripts/kl8/reviewer.py && .venv/bin/python scripts/kl8/metrics.py && .venv/bin/python scripts/hermes_push.py --mode review --lottery kl8 --stdout
+command = cd /home/admin/bendi/lottery-analysis && bash scripts/push/kl8_review_push.sh
 on_failure = continue
 deliver = origin
 no_agent = true
-description = 快乐8：拉取最新开奖+选四复盘+累计表现+推送
+description = 快乐8复盘推送：自闭环 fetcher→reviewer→metrics→推送
 
 [task-kl8-check]
 cron = 0 22 * * *

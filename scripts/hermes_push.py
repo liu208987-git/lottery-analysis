@@ -749,7 +749,7 @@ def build_kl8_predict_message() -> str:
         f"策略：{data.get('strategy', '?')}",
         "",
         f"【选四主推】{' '.join(f'{n:02d}' for n in play4)}（2元/注）",
-        f"  中4得100元｜中3得5元｜中2无奖",
+        f"  官方奖级：中4=93元｜中3=5元｜中2=3元",
         "",
         f"【20码参考池】",
         f"  {' '.join(f'{n:02d}' for n in pool[:10])}",

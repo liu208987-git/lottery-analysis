@@ -114,7 +114,7 @@ def predict(latest_issue: str, pool_size: int = 20, hot_ratio: float = 0.6) -> d
             "41-60": sum(1 for n in pool if 41 <= n <= 60),
             "61-80": sum(1 for n in pool if 61 <= n <= 80),
         },
-        "play4_note": "主推荐为选四玩法（2元/注=成本2元），中4得100元，中3得5元，中2无奖。"
+        "play4_note": "主推荐为选四玩法（2元/注），官方奖级：中4=93元，中3=5元，中2=3元。"
                       "20码候选池仅作辅助参考，不单独推荐投注。",
         "generated_at": datetime.now(CN_TZ).strftime("%Y-%m-%d %H:%M:%S"),
     }
